@@ -18,6 +18,25 @@ logger = logging.getLogger(__name__)
 RSS_URL = "https://feeds.finance.yahoo.com/rss/2.0/headline?s={tickers}&region=US&lang=en-US"
 CACHE_PATH = Path(__file__).parent.parent / "cache" / "news.jsonl"
 
+# Known name variants per ticker for relevance filtering.
+_TICKER_NAMES: dict[str, list[str]] = {
+    "NVDA": ["nvidia", "nvda"],
+    "TSLA": ["tesla", "tsla"],
+    "MSFT": ["microsoft", "msft"],
+    "AAPL": ["apple", "aapl"],
+    "GOOGL": ["google", "googl", "alphabet"],
+    "AMZN": ["amazon", "amzn"],
+    "META": ["meta", "facebook"],
+    "NFLX": ["netflix", "nflx"],
+}
+
+
+def _mentions_ticker(text: str, ticker: str) -> bool:
+    """Return True if text contains the ticker symbol or a known company-name variant."""
+    text_lower = text.lower()
+    names = _TICKER_NAMES.get(ticker.upper(), [ticker.lower()])
+    return any(name in text_lower for name in names)
+
 
 class NewsItem(BaseModel):
     title: str
@@ -94,6 +113,11 @@ def fetch_news(tickers: list[str], limit: int = 50) -> list[NewsItem]:
 
             h = _link_hash(link)
             if h in seen:
+                continue
+
+            combined = f"{entry.get('title', '')} {entry.get('summary', '')}"
+            if not _mentions_ticker(combined, ticker):
+                logger.debug("Skipping off-topic article for %s: %s", ticker, entry.get("title", "")[:60])
                 continue
 
             published = entry.get("published", datetime.now(timezone.utc).isoformat())
