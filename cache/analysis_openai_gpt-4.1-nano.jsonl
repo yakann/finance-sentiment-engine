@@ -1,0 +1,15 @@
+{"ticker":"NVDA","sentiment":"neutral","urgency":"medium","key_event":"analyst_price_target_reset","summary":"Nvidia stock down 4.42% amid sector declines; analyst resets price target ahead of earnings."}
+{"ticker":"NVDA","sentiment":"neutral","urgency":"low","key_event":"earnings_date_announcement","summary":"Nvidia announces earnings date for May 20; emphasizes a key metric over quarterly revenue."}
+{"ticker":"NVDA","sentiment":"neutral","urgency":"low","key_event":"general_market_commentary","summary":"Discussion on AI's impact and data center power demand, no immediate company-specific or market-moving event."}
+{"ticker":"NVDA","sentiment":"bullish","urgency":"high","key_event":"market_cap_rise","summary":"Nvidia's market cap exceeds $5.5 trillion, becoming the world's second-largest asset amid a 'historic technological revolution'."}
+{"ticker":"NVIDIA","sentiment":"neutral","urgency":"low","key_event":"earnings_loom","summary":"Markets steady with Nvidia earnings upcoming; indexes near highs, small caps down."}
+{"ticker":"NVDA","sentiment":"bullish","urgency":"medium","key_event":"industry_trend","summary":"AI storage demand rising, highlighting Nvidia's GPU leadership in AI infrastructure."}
+{"ticker":"TSLA","sentiment":"neutral","urgency":"low","key_event":"market_commentary","summary":"No significant recent event impacting Tesla directly. News relates to US-China trade context."}
+{"ticker":"TSLA","sentiment":"neutral","urgency":"low","key_event":"product_pricing_change","summary":"Tesla increases Model Y prices, stock adjusts to a lower buy point."}
+{"ticker":"TSLA","sentiment":"neutral","urgency":"medium","key_event":"product_promotion","summary":"Tesla introduces new financing offers in China amid tough market conditions and declining sales."}
+{"ticker":"TSLA","sentiment":"neutral","urgency":"low","key_event":"market_movement","summary":"Tesla stock has increased for two consecutive weeks; potential impact from Trump's China trip noted."}
+{"ticker":"TSLA","sentiment":"bullish","urgency":"low","key_event":"product_development","summary":"Focus on FSD, robotaxis, and Optimus robot; potential upside for investors."}
+{"ticker":"TSLA","sentiment":"bearish","urgency":"low","key_event":"market_commentary","summary":"Tesla shares decline after China trip disappoints investors; no major trade deals."}
+{"ticker":"TSLA","sentiment":"bearish","urgency":"medium","key_event":"product_concerns","summary":"Tesla robotaxi delays and increased competition raise concerns about AI ambitions."}
+{"ticker":"TSLA","sentiment":"neutral","urgency":"low","key_event":"strategy_article","summary":"An influencer discusses making $18,000 from selling call options on Tesla shares, highlighting a passive income strategy."}
+{"ticker":"TSLA","sentiment":"neutral","urgency":"low","key_event":"market_movement","summary":"Tesla drops 4%, Ford falls 7% amid broader auto sector declines."}

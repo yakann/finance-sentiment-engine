@@ -1,28 +1,72 @@
+import argparse
+import asyncio
 import json
 from pathlib import Path
-from analyzer.openai_analyzer import analyze_news
+
+from analyzer.runner import analyze_batch, save_results, print_performance_table
+
+BENCHMARK_COMBOS = [
+    ("openai", "gpt-4.1-mini"),
+    ("openai", "gpt-4.1-nano"),
+    ("groq",   "llama-3.3-70b-versatile"),
+    ("groq",   "llama-3.1-8b-instant"),
+]
 
 
-def main():
-    news_path = Path("cache/news.jsonl")
-    items = [json.loads(line) for line in news_path.read_text().splitlines() if line.strip()][:5]
+def load_news(limit: int) -> list[dict]:
+    path = Path("cache/news.jsonl")
+    items = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return items[:limit] if limit > 0 else items
 
-    results = []
-    for item in items:
-        print(f"\nAnalyzing: {item['title'][:60]}...")
-        result = analyze_news(
-            title=item["title"],
-            summary=item["summary"],
-            ticker=item["ticker"],
-        )
-        results.append(result.model_dump())
-        print(json.dumps(result.model_dump(), indent=2))
 
-    output_path = Path("cache/analysis.jsonl")
-    with output_path.open("w") as f:
-        for r in results:
-            f.write(json.dumps(r) + "\n")
-    print(f"\nSaved {len(results)} results to {output_path}")
+async def run_single(args) -> None:
+    news = load_news(args.limit)
+    print(f"Running {args.provider}/{args.model} on {len(news)} items (concurrency={args.concurrency})...")
+    stats = await analyze_batch(
+        news_items=news,
+        provider_name=args.provider,
+        model=args.model,
+        concurrency=args.concurrency,
+    )
+    path = save_results(stats)
+    print(f"Saved {stats.count} results → {path}")
+    print_performance_table([stats])
+
+
+async def run_benchmark(args) -> None:
+    news = load_news(args.limit)
+    print(f"Benchmark: {len(BENCHMARK_COMBOS)} combinations × {len(news)} items (concurrency={args.concurrency})\n")
+    all_stats = []
+    for provider, model in BENCHMARK_COMBOS:
+        print(f"▶ {provider}/{model} ...")
+        try:
+            stats = await analyze_batch(
+                news_items=news,
+                provider_name=provider,
+                model=model,
+                concurrency=args.concurrency,
+            )
+            path = save_results(stats)
+            print(f"  ✓ {stats.count} items in {stats.total_time_s:.2f}s → {path}")
+            all_stats.append(stats)
+        except Exception as e:
+            print(f"  ✗ failed: {e}")
+    print_performance_table(all_stats)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Finance Sentiment Engine")
+    parser.add_argument("--provider", default="openai", choices=["openai", "groq", "anthropic"])
+    parser.add_argument("--model", default="gpt-4.1-mini")
+    parser.add_argument("--concurrency", type=int, default=10)
+    parser.add_argument("--limit", type=int, default=0, help="Max news items (0 = all)")
+    parser.add_argument("--benchmark", action="store_true", help="Run all 4 provider×model combos")
+    args = parser.parse_args()
+
+    if args.benchmark:
+        asyncio.run(run_benchmark(args))
+    else:
+        asyncio.run(run_single(args))
 
 
 if __name__ == "__main__":

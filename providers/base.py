@@ -27,6 +27,15 @@ class LLMProvider(ABC):
     def generate_structured(self, messages, schema: type[BaseModel]) -> BaseModel:
         ...
 
+    @abstractmethod
+    async def agenerate_structured(
+        self,
+        messages,
+        schema: type[BaseModel],
+        system: str | None = None,
+    ) -> tuple[BaseModel, LLMUsage]:
+        ...
+
     def _log_usage(self, usage: LLMUsage, provider: str, model: str) -> None:
         logger.info(
             "%s/%s — input: %d, cached: %d, output: %d, total: %d tokens",
