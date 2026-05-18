@@ -1,6 +1,14 @@
 # Finance Sentiment Engine
 
-LLM provider abstraction layer — OpenAI, Anthropic ve Groq'u ortak bir interface üzerinden kullanır.
+Finansal haberleri LLM ile analiz eden ve günlük önem sıralamalı Markdown brief üreten pipeline. OpenAI, Anthropic ve Groq'u ortak bir interface üzerinden kullanır.
+
+## Pipeline Özeti
+
+```
+scraper/ → cache/news.jsonl → analyzer/ → cache/analysis_*.jsonl → report/ → reports/{date}.md
+```
+
+**Üretim modeli:** `openai/gpt-4.1-mini` — urgency, sentiment ve key_event sınıflandırmasında en iyi denge.
 
 ## Quickstart
 
@@ -18,7 +26,67 @@ cp .env.example .env   # veya doğrudan .env düzenle
 python tests/test_providers.py
 ```
 
-## Kullanım
+## Haber Analizi
+
+```bash
+# Tek model ile analiz
+python main.py --provider openai --model gpt-4.1-mini
+
+# Tüm modelleri karşılaştır (benchmark)
+python main.py --benchmark
+
+# İlk 5 haberi test et
+python main.py --limit 5
+```
+
+Sonuçlar `cache/analysis_{provider}_{model}.jsonl` dosyasına kaydedilir.
+
+## Günlük Brief Üretimi
+
+```bash
+# Bugünün briefingi (cache'ten okur, reports/ klasörüne yazar)
+python -m report.daily
+
+# Belirli bir tarih için
+python -m report.daily --date 2026-05-18
+
+# Farklı model veya top-n
+python -m report.daily --date 2026-05-18 --top-n 10 --model gpt-4.1-mini
+```
+
+Çıktı hem `stdout`'a basılır hem `reports/{date}.md` olarak kaydedilir.
+
+### Örnek Çıktı
+
+```markdown
+# Daily Finance Brief — 2026-05-18
+## Top 5 Urgent Movements
+
+### TSLA · ⚪ neutral · medium
+Tesla raised U.S. Model Y prices for the first time in two years...
+
+[Full article](https://...)
+```
+
+## Provider Karşılaştırması (36 etiketli örnek üzerinde)
+
+| Provider | Model | sentiment_acc | urgency_acc | key_event_acc | cost/run |
+|----------|-------|:---:|:---:|:---:|:---:|
+| openai | gpt-4.1-mini | 83% | 67% | 78% | $0.016 |
+| openai | gpt-4.1-nano | 69% | 75% | 58% | $0.004 |
+| groq | llama-3.3-70b | 56% | 50% | 44% | $0.022 |
+
+Detaylı analiz: [`eval/results.md`](eval/results.md)
+
+## Provider'lar
+
+| Provider  | `generate`            | `generate_structured`         |
+|-----------|-----------------------|-------------------------------|
+| OpenAI    | Responses API         | `beta.chat.completions.parse` |
+| Anthropic | Messages API          | Tool use + `tool_choice`      |
+| Groq      | Chat Completions API  | JSON mode                     |
+
+## Low-level Kullanım
 
 ```python
 from providers.factory import get_provider
@@ -28,29 +96,3 @@ response = provider.generate([{"role": "user", "content": "Merhaba!"}])
 print(response.text)
 print(response.usage)  # input/output/total tokens
 ```
-
-### Structured output
-
-```python
-from pydantic import BaseModel
-from providers.factory import get_provider
-
-class Sentiment(BaseModel):
-    label: str   # positive / negative / neutral
-    score: float # 0.0 – 1.0
-
-provider = get_provider("anthropic", "claude-haiku-4-5-20251001")
-result = provider.generate_structured(
-    messages=[{"role": "user", "content": "Apple stock surged 10% today."}],
-    schema=Sentiment,
-)
-print(result.label, result.score)
-```
-
-## Provider'lar
-
-| Provider  | `generate`            | `generate_structured`         |
-|-----------|-----------------------|-------------------------------|
-| OpenAI    | Responses API         | `beta.chat.completions.parse` |
-| Anthropic | Messages API          | Tool use + `tool_choice`      |
-| Groq      | Chat Completions API  | JSON mode                     |
