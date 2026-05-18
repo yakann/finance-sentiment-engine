@@ -1,9 +1,10 @@
 import logging
 import os
+import random
 from pydantic import BaseModel
 from providers.base import LLMProvider, LLMUsage, LLMResponse
 from openai import OpenAI, AsyncOpenAI, RateLimitError
-from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, retry_if_exception_type
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -12,7 +13,25 @@ load_dotenv(Path(__file__).parent.parent / ".env", override=True)
 logger = logging.getLogger(__name__)
 
 
+def _groq_retry_wait(retry_state) -> float:
+    """Honour Groq's retry-after header when present; otherwise random-exponential backoff."""
+    exc = retry_state.outcome.exception()
+    if isinstance(exc, RateLimitError) and exc.response is not None:
+        header = exc.response.headers.get("retry-after")
+        if header:
+            try:
+                return float(header) + random.uniform(0.1, 0.5)
+            except (ValueError, TypeError):
+                pass
+    # Random-exponential with jitter to prevent thundering-herd retries
+    cap = min(30.0, 2 ** retry_state.attempt_number)
+    return random.uniform(1.0, cap)
+
+
 class GroqProvider(LLMProvider):
+    # Groq free tier: 6 K–12 K TPM; concurrency=3 keeps us well under the limit
+    default_concurrency: int = 3
+
     def __init__(self, model: str):
         self.model = model
         self._groq_kwargs = dict(
@@ -65,8 +84,8 @@ class GroqProvider(LLMProvider):
 
     @retry(
         retry=retry_if_exception_type(RateLimitError),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
-        stop=stop_after_attempt(4),
+        wait=_groq_retry_wait,
+        stop=stop_after_attempt(6),
         reraise=True,
     )
     async def agenerate_structured(

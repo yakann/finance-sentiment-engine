@@ -157,10 +157,11 @@ async def analyze_batch(
     news_items: list[dict],
     provider_name: str,
     model: str,
-    concurrency: int = 10,
+    concurrency: int | None = None,
 ) -> BatchStats:
     provider = get_provider(provider_name, model)
-    sem = asyncio.Semaphore(concurrency)
+    effective_concurrency = concurrency if concurrency is not None else provider.default_concurrency
+    sem = asyncio.Semaphore(effective_concurrency)
     item_results: list[ItemResult | BaseException] = []
 
     async def analyze_one(item: dict) -> ItemResult:

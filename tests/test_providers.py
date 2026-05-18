@@ -8,8 +8,8 @@ PROMPT = [{"role": "user", "content": "Say hello in exactly 5 words."}]
 
 PROVIDERS = [
     ("openai", "gpt-4.1-mini"),
-    ("anthropic", "claude-haiku-4-5-20251001"),
     ("groq", "llama-3.1-8b-instant"),
+    ("anthropic", "claude-haiku-4-5-20251001"),
 ]
 
 
