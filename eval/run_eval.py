@@ -19,6 +19,14 @@ EVAL_COMBOS = [
     ("groq", "llama-3.1-8b-instant"),
 ]
 
+# Groq free tier TPM limits are tight (12K for 70b, 6K for 8b).
+# Running at concurrency=5 blasts the token budget in one shot → 429 storms.
+# Use lower concurrency for Groq to spread token consumption across time.
+PROVIDER_CONCURRENCY: dict[str, int] = {
+    "openai": 10,
+    "groq": 2,
+}
+
 LABELS_PATH = Path(__file__).parent / "labels.jsonl"
 RESULTS_PATH = Path(__file__).parent / "results.md"
 
@@ -94,7 +102,7 @@ async def run_eval() -> None:
                 news_items=news_items,
                 provider_name=provider,
                 model=model,
-                concurrency=5,
+                concurrency=PROVIDER_CONCURRENCY.get(provider, 5),
             )
             elapsed = time.perf_counter() - t0
             acc = compute_accuracy(matched_labels, stats.results)
