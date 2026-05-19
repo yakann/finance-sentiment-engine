@@ -19,6 +19,9 @@ class LLMResponse(BaseModel):
 
 
 class LLMProvider(ABC):
+    # Subclasses can override to tune per-provider safe concurrency
+    default_concurrency: int = 10
+
     @abstractmethod
     def generate(self, messages, system=None) -> LLMResponse:
         ...

@@ -21,7 +21,8 @@ def load_news(limit: int) -> list[dict]:
 
 async def run_single(args) -> None:
     news = load_news(args.limit)
-    print(f"Running {args.provider}/{args.model} on {len(news)} items (concurrency={args.concurrency})...")
+    concurrency_str = str(args.concurrency) if args.concurrency else "provider default"
+    print(f"Running {args.provider}/{args.model} on {len(news)} items (concurrency={concurrency_str})...")
     stats = await analyze_batch(
         news_items=news,
         provider_name=args.provider,
@@ -35,7 +36,8 @@ async def run_single(args) -> None:
 
 async def run_benchmark(args) -> None:
     news = load_news(args.limit)
-    print(f"Benchmark: {len(BENCHMARK_COMBOS)} combinations × {len(news)} items (concurrency={args.concurrency})\n")
+    concurrency_str = str(args.concurrency) if args.concurrency else "provider defaults"
+    print(f"Benchmark: {len(BENCHMARK_COMBOS)} combinations × {len(news)} items (concurrency={concurrency_str})\n")
     all_stats = []
     for provider, model in BENCHMARK_COMBOS:
         print(f"▶ {provider}/{model} ...")
@@ -58,7 +60,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Finance Sentiment Engine")
     parser.add_argument("--provider", default="openai", choices=["openai", "groq", "anthropic"])
     parser.add_argument("--model", default="gpt-4.1-mini")
-    parser.add_argument("--concurrency", type=int, default=10)
+    parser.add_argument("--concurrency", type=int, default=None,
+                        help="Max concurrent requests (default: provider-specific safe value)")
     parser.add_argument("--limit", type=int, default=0, help="Max news items (0 = all)")
     parser.add_argument("--benchmark", action="store_true", help="Run all 4 provider×model combos")
     args = parser.parse_args()

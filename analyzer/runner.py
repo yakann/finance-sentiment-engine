@@ -10,12 +10,25 @@ from schemas import NewsAnalysis
 
 SYSTEM = (
     "You are a financial analyst. Analyze the news and return structured JSON.\n\n"
-    "Urgency criteria:\n"
-    "- high: earnings miss/beat + stock move >5%, major layoffs (>10% workforce), "
-    "regulatory action, M&A announcement\n"
-    "- medium: product launch, executive change, analyst upgrade/downgrade, "
-    "earnings roughly in-line\n"
-    "- low: general market commentary, speculative articles, minor news"
+    "Urgency — use price-impact framing, not event type:\n"
+    "- high: news that could move the stock >3% in a single trading day "
+    "(e.g., earnings surprise, major M&A, regulatory action, product recall)\n"
+    "- medium: material information that plays out over days but is unlikely to "
+    "cause a single-day shock (e.g., analyst target change, product launch, "
+    "exec appointment, earnings preview)\n"
+    "- low: informational — unlikely to move the price on its own "
+    "(e.g., market commentary, speculative op-ed, sector overview)\n\n"
+    "key_event — pick exactly one of these 10 buckets:\n"
+    "- earnings: earnings previews, results, guidance, expectations\n"
+    "- analyst_action: analyst target changes, predictions, buy/sell ratings\n"
+    "- company_communication: CEO/exec statements, internal narratives\n"
+    "- product_event: launches, safety incidents, recalls, concrete product news\n"
+    "- competitive_dynamics: competitor moves, market share shifts, customer churn\n"
+    "- policy_geopolitical: regulation, trade policy, government action, public sentiment\n"
+    "- business_action: M&A, partnerships, pricing changes, supply chain\n"
+    "- market_dynamics: market cap milestones, sector moves, trading patterns\n"
+    "- insider_activity: insider/institutional buys, sells, speculation\n"
+    "- other: comparative analysis, mixed signals, off-topic\n"
 )
 
 FEW_SHOT = [
@@ -34,27 +47,27 @@ FEW_SHOT = [
             "ticker": "NVDA",
             "sentiment": "bullish",
             "urgency": "high",
-            "key_event": "earnings_beat",
+            "key_event": "earnings",
             "summary": "Nvidia Q3 revenue $18.1B, beat by 12%. Data center up 200% YoY. Stock +8%.",
         }),
     },
     {
         "role": "user",
         "content": (
-            "Ticker: META\n"
-            "Title: Meta Announces 11,000 Layoffs Amid Cost-Cutting Push\n"
-            "Summary: Meta will lay off 13% of its workforce as CEO Mark Zuckerberg "
-            "calls it a year of efficiency."
+            "Ticker: TSLA\n"
+            "Title: Tesla Slips After China Trip Disappoints\n"
+            "Summary: Tesla investors wanted a breakthrough in China, but the "
+            "Trump-Xi meeting ended without major trade agreements."
         ),
     },
     {
         "role": "assistant",
         "content": json.dumps({
-            "ticker": "META",
+            "ticker": "TSLA",
             "sentiment": "bearish",
-            "urgency": "high",
-            "key_event": "layoffs",
-            "summary": "Meta cuts 11,000 jobs (13% of workforce) in major restructuring.",
+            "urgency": "medium",
+            "key_event": "policy_geopolitical",
+            "summary": "Trump-Xi talks ended without trade deal; China market breakthrough hopes unmet.",
         }),
     },
     {
@@ -72,8 +85,27 @@ FEW_SHOT = [
             "ticker": "AAPL",
             "sentiment": "bullish",
             "urgency": "medium",
-            "key_event": "analyst_upgrade",
+            "key_event": "analyst_action",
             "summary": "Wedbush raises AAPL target to $220 on strong iPhone 15 demand.",
+        }),
+    },
+    {
+        "role": "user",
+        "content": (
+            "Ticker: MSFT\n"
+            "Title: Microsoft: AI Will Change Everything, Says CEO\n"
+            "Summary: Satya Nadella reiterated Microsoft's long-term AI strategy "
+            "at a conference, saying AI is the platform shift of the decade."
+        ),
+    },
+    {
+        "role": "assistant",
+        "content": json.dumps({
+            "ticker": "MSFT",
+            "sentiment": "neutral",
+            "urgency": "low",
+            "key_event": "company_communication",
+            "summary": "Nadella reiterates AI strategy at conference; no new product or financial data.",
         }),
     },
 ]
@@ -112,10 +144,12 @@ class BatchStats:
     count: int
     total_time_s: float
     avg_latency_ms: float
+    sum_latency_ms: float          # sum of per-item latencies (incl. retry backoff)
     total_input_tokens: int
     total_output_tokens: int
     total_tokens: int
     cost_usd: float
+    num_failures: int = 0
     results: list[ItemResult] = field(default_factory=list)
 
 
@@ -123,10 +157,11 @@ async def analyze_batch(
     news_items: list[dict],
     provider_name: str,
     model: str,
-    concurrency: int = 10,
+    concurrency: int | None = None,
 ) -> BatchStats:
     provider = get_provider(provider_name, model)
-    sem = asyncio.Semaphore(concurrency)
+    effective_concurrency = concurrency if concurrency is not None else provider.default_concurrency
+    sem = asyncio.Semaphore(effective_concurrency)
     item_results: list[ItemResult | BaseException] = []
 
     async def analyze_one(item: dict) -> ItemResult:
@@ -159,6 +194,7 @@ async def analyze_batch(
     total_output = sum(r.usage.output_tokens for r in successes)
     total_tokens = sum(r.usage.total_tokens for r in successes)
     avg_latency = sum(latencies) / len(latencies) if latencies else 0.0
+    sum_latency = sum(latencies)
 
     return BatchStats(
         provider=provider_name,
@@ -166,10 +202,12 @@ async def analyze_batch(
         count=len(successes),
         total_time_s=total_time_s,
         avg_latency_ms=avg_latency,
+        sum_latency_ms=sum_latency,
         total_input_tokens=total_input,
         total_output_tokens=total_output,
         total_tokens=total_tokens,
         cost_usd=calc_cost(provider_name, model, total_input, total_output),
+        num_failures=len(failures),
         results=successes,
     )
 
@@ -185,13 +223,22 @@ def save_results(stats: BatchStats, output_dir: Path = Path("cache")) -> Path:
 
 def print_performance_table(all_stats: list[BatchStats]) -> None:
     print("\n## Performance Comparison\n")
-    header = f"{'Provider':<8} {'Model':<28} {'n':>3} {'Total(s)':>9} {'Avg(ms)':>9} {'Tokens':>8} {'Cost($)':>9}"
+    header = (
+        f"{'Provider':<8} {'Model':<28} {'n':>3} {'Wall(s)':>8} "
+        f"{'SumItem(s)':>11} {'Parallel?':>10} {'Avg(ms)':>8} "
+        f"{'Fails':>5} {'Tokens':>8} {'Cost($)':>9}"
+    )
     print(header)
     print("-" * len(header))
     for s in all_stats:
+        # If wall_time << sum_latency → parallelism is working
+        # If wall_time ≈ sum_latency  → requests are sequential
+        sum_s = s.sum_latency_ms / 1000
+        parallel = "YES" if sum_s > s.total_time_s * 1.5 else "NO ⚠️"
         print(
             f"{s.provider:<8} {s.model:<28} {s.count:>3} "
-            f"{s.total_time_s:>9.2f} {s.avg_latency_ms:>9.0f} "
+            f"{s.total_time_s:>8.2f} {sum_s:>11.2f} {parallel:>10} "
+            f"{s.avg_latency_ms:>8.0f} {s.num_failures:>5} "
             f"{s.total_tokens:>8} {s.cost_usd:>9.5f}"
         )
     print()
