@@ -3,6 +3,8 @@
 > A multi-provider LLM pipeline that scrapes financial news, classifies each story by sentiment, urgency, and event type, then renders a priority-ranked daily brief in Markdown.
 > Built in 7 days as a hands-on AI engineering project — swap OpenAI, Anthropic, or Groq with a single flag and compare accuracy vs. cost in seconds.
 
+![Demo](docs/demo.gif)
+
 ## Architecture
 
 ```mermaid
