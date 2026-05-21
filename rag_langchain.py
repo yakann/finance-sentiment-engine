@@ -31,8 +31,8 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from langchain.retrievers.contextual_compression import ContextualCompressionRetriever
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_classic.retrievers.contextual_compression import ContextualCompressionRetriever
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_cohere import CohereRerank
 from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
