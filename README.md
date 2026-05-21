@@ -133,3 +133,40 @@ Seven days of building this pipeline taught me more than any tutorial about the 
 **Free-tier rate limits are a real engineering problem.** Groq's 12 K / 6 K TPM limits turned a 400 ms model into a 27-second one in batch mode. The fix — exponential backoff with `tenacity`, per-provider concurrency caps — added more code than the actual LLM calls.
 
 **Structured output is not free.** Each provider implements it differently: OpenAI parses directly into a Pydantic model, Anthropic forces a tool call you then unwrap, Groq uses JSON mode requiring a manual `model_validate` call. Hiding this behind a common `LLMProvider` interface was the right call — it kept the analyzer layer clean and made the provider swap genuinely one-line.
+
+## Day 13 — LangChain Port: Line Count & Control Trade-off
+
+`rag_langchain.py` ports the Day-12 two-stage pipeline (vector search → Cohere rerank → GPT answer) to pure LangChain / LCEL.
+
+### Line Count Comparison
+
+| File | Lines | Description |
+|------|------:|-------------|
+| `rag_numpy.py` | 239 | Day 9 — NumPy brute-force cosine search |
+| `rag_qdrant.py` | 320 | Day 10 — Qdrant vector DB + filter demo |
+| `rerank.py` | 424 | Day 12 — Two-stage rerank (Cohere + BGE) |
+| **`rag_langchain.py`** | **185** | **Day 13 — LangChain / LCEL port** |
+
+**56 % fewer lines** than the equivalent raw implementation (`rerank.py`).
+
+### What LangChain Hides (and What You Lose)
+
+| Raw Day-12 code | LangChain equivalent | Control lost |
+|-----------------|---------------------|-------------|
+| `tiktoken` + manual sliding window | `RecursiveCharacterTextSplitter` | Character-based, not token-accurate — chunk sizes are approximate |
+| `openai.embeddings.create` in batches of 100 | `OpenAIEmbeddings` | No visibility into batch size or rate-limit retry logic |
+| Manual `qdrant.upsert` loop | `QdrantVectorStore.from_documents` | Can't tune upsert batch size or inspect intermediate state |
+| `rerank_cohere()` → raw `relevance_score` per chunk | `ContextualCompressionRetriever + CohereRerank` | Rerank scores are stripped from final `Document` objects |
+| `rerank_bge()` local CrossEncoder | ❌ not ported | No BGE local reranker (needs a custom `BaseDocumentCompressor`) |
+| `recall_at_k()` evaluation harness | ❌ not ported | No automated Recall@5 metric — you need `langchain_benchmarks` or manual eval |
+| Per-chunk score visible at every step | Hidden inside chain | Harder to debug when retrieval quality degrades |
+
+### The Key Insight
+
+> LangChain is excellent for rapid prototyping — swapping the LLM, retriever, or reranker is one line.  
+> But because you built Days 9–12 from scratch, you now know exactly what each abstraction is doing underneath. When something breaks in production, that mental model is what lets you debug it.
+
+```bash
+# Run the LangChain port (requires Qdrant running on localhost:6333)
+python rag_langchain.py
+```
