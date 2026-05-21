@@ -174,9 +174,9 @@ def qdrant_search(
             ]
         )
 
-    hits = qdrant.search(
+    response = qdrant.query_points(
         collection_name=COLLECTION,
-        query_vector=q_vec,
+        query=q_vec,
         limit=top_k,
         query_filter=search_filter,
         with_payload=True,
@@ -189,7 +189,7 @@ def qdrant_search(
             "text":     h.payload["text"],
             "score":    h.score,
         }
-        for h in hits
+        for h in response.points
     ]
 
 

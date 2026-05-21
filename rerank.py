@@ -157,9 +157,9 @@ def ensure_qdrant_index(chunks: list[dict]) -> None:
 # ── 4. Base retrieval: top-10 via vector search ──────────────────────────────
 def vector_search(query: str, top_k: int = TOP_K_RETRIEVE) -> list[dict]:
     q_vec = embed_query(query)
-    hits  = qdrant.search(
+    response = qdrant.query_points(
         collection_name=COLLECTION,
-        query_vector=q_vec,
+        query=q_vec,
         limit=top_k,
         with_payload=True,
     )
@@ -170,7 +170,7 @@ def vector_search(query: str, top_k: int = TOP_K_RETRIEVE) -> list[dict]:
             "text":     h.payload["text"],
             "score":    h.score,
         }
-        for h in hits
+        for h in response.points
     ]
 
 
