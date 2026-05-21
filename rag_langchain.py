@@ -107,6 +107,14 @@ def get_vectorstore() -> QdrantVectorStore:
 
 # ── 3. Build LCEL chain ───────────────────────────────────────────────────────
 def build_chain(vectorstore: QdrantVectorStore):
+    cohere_api_key = os.getenv("COHERE_API_KEY")
+    if not cohere_api_key:
+        raise EnvironmentError(
+            "COHERE_API_KEY not set.\n"
+            "  1. Sign up at https://dashboard.cohere.com/api-keys (free tier: 1000 req/month)\n"
+            "  2. Add  COHERE_API_KEY=<your-key>  to your .env file"
+        )
+
     base_retriever = vectorstore.as_retriever(
         search_kwargs={"k": TOP_K_RETRIEVE}
     )
@@ -115,7 +123,7 @@ def build_chain(vectorstore: QdrantVectorStore):
     compressor = CohereRerank(
         model="rerank-v3.5",
         top_n=TOP_K_FINAL,
-        cohere_api_key=os.getenv("COHERE_API_KEY"),
+        cohere_api_key=cohere_api_key,
     )
     retriever = ContextualCompressionRetriever(
         base_compressor=compressor,
