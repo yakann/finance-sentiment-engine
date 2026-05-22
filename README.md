@@ -134,6 +134,42 @@ Seven days of building this pipeline taught me more than any tutorial about the 
 
 **Structured output is not free.** Each provider implements it differently: OpenAI parses directly into a Pydantic model, Anthropic forces a tool call you then unwrap, Groq uses JSON mode requiring a manual `model_validate` call. Hiding this behind a common `LLMProvider` interface was the right call — it kept the analyzer layer clean and made the provider swap genuinely one-line.
 
+## Day 14 — RAG Evaluation: Recall@5 + LLM-as-Judge
+
+`eval/rag_eval.py` benchmarks all three RAG implementations against **15 finance queries** on the NVIDIA 10-K.
+
+### Metrics
+
+| Metric | Description |
+|--------|-------------|
+| **Recall@5** | Fraction of top-5 retrieved chunks from the expected 10-K section(s) |
+| **Faithfulness** | `gpt-4o-mini` judge — are answer claims supported by retrieved chunks? |
+| **Answer Relevance** | `gpt-4o-mini` judge — does the answer actually address the question? |
+
+### Results (15 queries × 3 implementations = 45 rows)
+
+| Implementation | Recall@5 ↑ | Faithfulness ↑ | Answer Relevance ↑ | Avg Latency |
+|----------------|:----------:|:--------------:|:------------------:|:-----------:|
+| numpy (Day 9)  | 0.627 | 0.300 | 0.833 | 4.9s |
+| qdrant (Day 10) | 0.627 | 0.367 | **0.900** | 6.1s |
+| langchain (Day 13) | 0.560 | **0.500** | 0.800 | 6.6s |
+
+**Key findings:**
+
+- **Numpy ≈ Qdrant on Recall@5** — identical tiktoken-accurate chunking produces the same embeddings; HNSW adds persistence and filtering, not retrieval quality.
+- **LangChain lowers Recall@5** — character-based `RecursiveCharacterTextSplitter` (2 000 chars ≈ 500 tokens) splits differently than `tiktoken`, shifting chunk boundaries and hurting section-level precision.
+- **LangChain wins on Faithfulness** — Cohere cross-encoder reranking surfaces the most relevant passages, so the answer sticks closer to the retrieved context.
+- **Qdrant wins on Answer Relevance** — vector search retrieves broad coverage; the LLM synthesises a more complete response than the reranked-but-narrower LangChain set.
+
+→ Full results: [`eval/rag_results.md`](eval/rag_results.md)
+
+```bash
+# Run the evaluation (requires Qdrant on localhost:6333 + OPENAI_API_KEY + COHERE_API_KEY)
+uv run python eval/rag_eval.py
+```
+
+---
+
 ## Day 13 — LangChain Port: Line Count & Control Trade-off
 
 `rag_langchain.py` ports the Day-12 two-stage pipeline (vector search → Cohere rerank → GPT answer) to pure LangChain / LCEL.
