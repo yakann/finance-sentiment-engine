@@ -1,12 +1,16 @@
 import logging
 import os
 import random
+from typing import TYPE_CHECKING
 from pydantic import BaseModel
 from providers.base import LLMProvider, LLMUsage, LLMResponse
 from openai import OpenAI, AsyncOpenAI, RateLimitError
 from tenacity import retry, stop_after_attempt, retry_if_exception_type
 from dotenv import load_dotenv
 from pathlib import Path
+
+if TYPE_CHECKING:
+    from agent.tools.base import Tool
 
 load_dotenv(Path(__file__).parent.parent / ".env", override=True)
 
@@ -47,7 +51,12 @@ class GroqProvider(LLMProvider):
             self._async_client = AsyncOpenAI(**self._groq_kwargs)
         return self._async_client
 
-    def generate(self, messages, system=None) -> LLMResponse:
+    def generate(
+        self,
+        messages,
+        system=None,
+        tools: list["Tool"] | None = None,
+    ) -> LLMResponse:
         all_messages = []
         if system:
             all_messages.append({"role": "system", "content": system})

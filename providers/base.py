@@ -1,6 +1,10 @@
 import logging
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from agent.tools.base import Tool
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +27,12 @@ class LLMProvider(ABC):
     default_concurrency: int = 10
 
     @abstractmethod
-    def generate(self, messages, system=None) -> LLMResponse:
+    def generate(
+        self,
+        messages,
+        system=None,
+        tools: list["Tool"] | None = None,
+    ) -> LLMResponse:
         ...
 
     @abstractmethod

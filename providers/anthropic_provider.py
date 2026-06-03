@@ -1,9 +1,13 @@
 import logging
+from typing import TYPE_CHECKING
 from pydantic import BaseModel
 from providers.base import LLMProvider, LLMUsage, LLMResponse
 from dotenv import load_dotenv
 from pathlib import Path
 import anthropic
+
+if TYPE_CHECKING:
+    from agent.tools.base import Tool
 
 load_dotenv(Path(__file__).parent.parent / ".env", override=True)
 
@@ -22,20 +26,18 @@ class AnthropicProvider(LLMProvider):
             self._async_client = anthropic.AsyncAnthropic()
         return self._async_client
 
-    def generate(self, messages, system=None) -> LLMResponse:
+    def generate(
+        self,
+        messages,
+        system=None,
+        tools: list["Tool"] | None = None,
+    ) -> LLMResponse:
+        kwargs: dict = dict(model=self.model, max_tokens=1024, messages=messages)
         if system:
-            message = self.client.messages.create(
-                model=self.model,
-                max_tokens=1024,
-                system=system,
-                messages=messages,
-            )
-        else:
-            message = self.client.messages.create(
-                model=self.model,
-                max_tokens=1024,
-                messages=messages,
-            )
+            kwargs["system"] = system
+        if tools:
+            kwargs["tools"] = [t.to_anthropic_format() for t in tools]
+        message = self.client.messages.create(**kwargs)
         text_block = next(b for b in message.content if b.type == "text")
         result = LLMResponse(
             text=text_block.text,  # type: ignore[union-attr]

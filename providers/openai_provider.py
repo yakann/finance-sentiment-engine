@@ -1,9 +1,13 @@
 import logging
+from typing import TYPE_CHECKING
 from pydantic import BaseModel
 from providers.base import LLMProvider, LLMUsage, LLMResponse
 from openai import OpenAI, AsyncOpenAI
 from dotenv import load_dotenv
 from pathlib import Path
+
+if TYPE_CHECKING:
+    from agent.tools.base import Tool
 
 load_dotenv(Path(__file__).parent.parent / ".env", override=True)
 
@@ -22,12 +26,16 @@ class OpenAIProvider(LLMProvider):
             self._async_client = AsyncOpenAI()
         return self._async_client
 
-    def generate(self, messages, system=None) -> LLMResponse:
-        response = self.client.responses.create(
-            model=self.model,
-            input=messages,
-            instructions=system,
-        )
+    def generate(
+        self,
+        messages,
+        system=None,
+        tools: list["Tool"] | None = None,
+    ) -> LLMResponse:
+        kwargs: dict = dict(model=self.model, input=messages, instructions=system)
+        if tools:
+            kwargs["tools"] = [t.to_openai_format() for t in tools]
+        response = self.client.responses.create(**kwargs)
         usage = response.usage
         result = LLMResponse(
             text=response.output_text,
