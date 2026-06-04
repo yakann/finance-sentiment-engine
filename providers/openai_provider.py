@@ -1,7 +1,8 @@
+import json
 import logging
 from typing import TYPE_CHECKING
 from pydantic import BaseModel
-from providers.base import LLMProvider, LLMUsage, LLMResponse
+from providers.base import LLMProvider, LLMUsage, LLMResponse, ToolCall, NextAction
 from openai import OpenAI, AsyncOpenAI
 from dotenv import load_dotenv
 from pathlib import Path
@@ -34,11 +35,35 @@ class OpenAIProvider(LLMProvider):
     ) -> LLMResponse:
         kwargs: dict = dict(model=self.model, input=messages, instructions=system)
         if tools:
-            kwargs["tools"] = [t.to_openai_format() for t in tools]
+            kwargs["tools"] = [t.to_openai_responses_format() for t in tools]
         response = self.client.responses.create(**kwargs)
+
+        text = response.output_text or ""
+        tool_calls: list[ToolCall] = []
+        raw_content: list[dict] = []
+
+        for item in response.output:
+            if getattr(item, "type", None) == "function_call":
+                tool_calls.append(ToolCall(
+                    id=item.call_id,
+                    name=item.name,
+                    input=json.loads(item.arguments),
+                ))
+                raw_content.append({
+                    "type": "function_call",
+                    "id": item.id,
+                    "call_id": item.call_id,
+                    "name": item.name,
+                    "arguments": item.arguments,
+                })
+
+        next_action = NextAction(
+            type="tool_calls" if tool_calls else "text",
+            tool_calls=tool_calls,
+        )
         usage = response.usage
         result = LLMResponse(
-            text=response.output_text,
+            text=text,
             usage=LLMUsage(
                 input_tokens=usage.input_tokens,
                 cached_tokens=usage.input_tokens_details.cached_tokens,
@@ -46,9 +71,30 @@ class OpenAIProvider(LLMProvider):
                 reasoning_tokens=usage.output_tokens_details.reasoning_tokens,
                 total_tokens=usage.total_tokens,
             ),
+            next_action=next_action,
+            raw_assistant_content=raw_content,
         )
         self._log_usage(result.usage, "openai", self.model)
         return result
+
+    def extend_messages_with_assistant_turn(
+        self, messages: list, response: LLMResponse
+    ) -> None:
+        """Responses API: extend the flat input list with function_call items."""
+        messages.extend(response.raw_assistant_content)
+
+    def extend_messages_with_tool_results(
+        self,
+        messages: list,
+        tool_results: list[dict],
+    ) -> None:
+        """Responses API: append function_call_output items to the flat input list."""
+        for tr in tool_results:
+            messages.append({
+                "type": "function_call_output",
+                "call_id": tr["tool_call_id"],
+                "output": tr["result"],
+            })
 
     def generate_structured(self, messages, schema: type[BaseModel]) -> BaseModel:
         response = self.client.beta.chat.completions.parse(

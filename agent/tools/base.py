@@ -28,3 +28,12 @@ class Tool(BaseModel):
                 "parameters": self.input_schema.model_json_schema(),
             },
         }
+
+    def to_openai_responses_format(self) -> dict:
+        """Tool format for OpenAI Responses API (client.responses.create)."""
+        return {
+            "type": "function",
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.input_schema.model_json_schema(),
+        }

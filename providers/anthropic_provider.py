@@ -1,7 +1,7 @@
 import logging
 from typing import TYPE_CHECKING
 from pydantic import BaseModel
-from providers.base import LLMProvider, LLMUsage, LLMResponse
+from providers.base import LLMProvider, LLMUsage, LLMResponse, ToolCall, NextAction
 from dotenv import load_dotenv
 from pathlib import Path
 import anthropic
@@ -38,14 +38,40 @@ class AnthropicProvider(LLMProvider):
         if tools:
             kwargs["tools"] = [t.to_anthropic_format() for t in tools]
         message = self.client.messages.create(**kwargs)
-        text_block = next(b for b in message.content if b.type == "text")
+
+        text = ""
+        tool_calls: list[ToolCall] = []
+        raw_content: list[dict] = []
+
+        for block in message.content:
+            if block.type == "text":
+                text = block.text
+                raw_content.append({"type": "text", "text": block.text})
+            elif block.type == "tool_use":
+                tool_calls.append(
+                    ToolCall(id=block.id, name=block.name, input=dict(block.input))
+                )
+                raw_content.append({
+                    "type": "tool_use",
+                    "id": block.id,
+                    "name": block.name,
+                    "input": dict(block.input),
+                })
+
+        next_action = NextAction(
+            type="tool_calls" if tool_calls else "text",
+            tool_calls=tool_calls,
+        )
+        usage = LLMUsage(
+            input_tokens=message.usage.input_tokens,
+            output_tokens=message.usage.output_tokens,
+            total_tokens=message.usage.input_tokens + message.usage.output_tokens,
+        )
         result = LLMResponse(
-            text=text_block.text,  # type: ignore[union-attr]
-            usage=LLMUsage(
-                input_tokens=message.usage.input_tokens,
-                output_tokens=message.usage.output_tokens,
-                total_tokens=message.usage.input_tokens + message.usage.output_tokens,
-            ),
+            text=text,
+            usage=usage,
+            next_action=next_action,
+            raw_assistant_content=raw_content,
         )
         self._log_usage(result.usage, "anthropic", self.model)
         return result
