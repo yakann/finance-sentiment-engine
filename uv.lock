@@ -442,7 +442,7 @@ wheels = [
 
 [[package]]
 name = "finance-sentiment-engine"
-version = "0.1.0"
+version = "0.2.0"
 source = { virtual = "." }
 dependencies = [
     { name = "anthropic" },
@@ -454,6 +454,7 @@ dependencies = [
     { name = "langchain-cohere" },
     { name = "langchain-openai" },
     { name = "langchain-qdrant" },
+    { name = "langgraph" },
     { name = "lxml" },
     { name = "numpy" },
     { name = "openai" },
@@ -480,6 +481,7 @@ requires-dist = [
     { name = "langchain-cohere", specifier = ">=0.5.1" },
     { name = "langchain-openai", specifier = ">=1.2.1" },
     { name = "langchain-qdrant", specifier = ">=1.1.0" },
+    { name = "langgraph", specifier = ">=1.2.0" },
     { name = "lxml", specifier = ">=6.1.1" },
     { name = "numpy", specifier = ">=2.4.6" },
     { name = "openai", specifier = ">=2.36.0" },
