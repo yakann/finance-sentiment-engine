@@ -83,7 +83,7 @@ def test_graph_edge_order():
     edge_pairs = {(e.source, e.target) for e in schema.edges}
     assert ("__start__", "collect_news") in edge_pairs
     assert ("collect_news", "analyze_sentiment") in edge_pairs
-    assert ("analyze_sentiment", "fetch_price") in edge_pairs
+    # Day 24: analyze_sentiment → fetch_price artık doğrudan değil, conditional branch üzerinden
     assert ("fetch_price", "__end__") in edge_pairs
 
 
