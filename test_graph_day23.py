@@ -84,7 +84,9 @@ def test_graph_edge_order():
     assert ("__start__", "collect_news") in edge_pairs
     assert ("collect_news", "analyze_sentiment") in edge_pairs
     # Day 24: analyze_sentiment → fetch_price artık doğrudan değil, conditional branch üzerinden
-    assert ("fetch_price", "__end__") in edge_pairs
+    # Day 26: fetch_price → draft (HITL interrupt noktası); draft → __end__ conditional
+    assert ("fetch_price", "draft") in edge_pairs
+    assert ("draft", "__end__") in edge_pairs
 
 
 # ---------------------------------------------------------------------------

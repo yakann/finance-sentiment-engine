@@ -13,4 +13,5 @@ class FinanceState(TypedDict, total=False):
     price_data: dict
     risks: list[str]
     draft: str
+    feedback: str  # Day 26: human review feedback; "" = approved
     messages: Annotated[list[BaseMessage], add_messages]

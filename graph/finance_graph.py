@@ -1,7 +1,7 @@
 """
-Day 24 — Conditional Routing by Sentiment
+Day 26 — Human-in-the-Loop (HITL) Draft Review
 
-GENEL AKIŞ (Conditional Branch'li):
+GENEL AKIŞ (HITL branch'li):
     START
       │
       ▼
@@ -19,11 +19,25 @@ GENEL AKIŞ (Conditional Branch'li):
                                fetch_price       ← yfinance fiyat verisi
                                        │
                                        ▼
-                                      END
+                               draft             ← final brief yaz  [INTERRUPT HERE]
+                                       │
+                               ┌───────┴────────┐
+                               │ feedback var?  │
+                               │                │
+                              YES               NO
+                               │                │
+                               ▼                ▼
+                             revise            END
+                               │
+                               └──────────────▶ draft (loop)
 
-Routing Mantığı:
-    sentiment_summary "BULLISH" veya "BEARISH" ile başlıyorsa → deep_analysis
-    Aksi hâlde (neutral / veri yok) → short_brief
+HITL Protokolü:
+    1. graph.compile(checkpointer=saver, interrupt_after=["draft"])
+    2. graph.invoke(input, config)  → draft node'unda durur
+    3. state = graph.get_state(config)  → draft'ı kullanıcıya göster
+    4a. Approve:  graph.invoke(None, config)  → END
+    4b. Reject:   graph.update_state(config, {"feedback": "..."})
+                  graph.invoke(None, config)  → revise → draft (loop)
 
 STATE'İN YOLCULUĞU:
     Başlangıç             : { ticker: "NVDA", messages: [] }
@@ -32,6 +46,8 @@ STATE'İN YOLCULUĞU:
     deep_analysis sonrası : + { risks: ["10-K'dan risk özeti..."] }   (bullish/bearish)
     short_brief sonrası   : + { draft: "[SHORT BRIEF] NVDA — ..." }   (neutral)
     fetch_price sonrası   : + { price_data: { price: 134.5, ... } }
+    draft sonrası         : + { draft: "[DRAFT] NVDA Investment Brief..." }  ← INTERRUPT
+    revise sonrası        : + { draft: "...+ [REVISION]...", feedback: "" }
 """
 
 from typing import Literal
@@ -195,12 +211,97 @@ def fetch_price(state: FinanceState) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# NODE 5: draft  (Day 26 — YENİ, HITL interrupt noktası)
+# ---------------------------------------------------------------------------
+
+def write_draft(state: FinanceState) -> dict:
+    """
+    Tüm toplanan veriden (sentiment, fiyat, riskler) yatırım brief'i taslağı yazar.
+
+    Bu node interrupt_after=["draft"] ile durdurma noktasıdır.
+    Human reviewer:
+        - Onaylarsa → graph.invoke(None, config)          → END
+        - Red ederse → graph.update_state(..., feedback)
+                       graph.invoke(None, config)          → revise → draft (loop)
+
+    Risks varsa (deep_analysis dalı) bunları öne çıkarır.
+    Yoksa short_brief'ten gelen taslağı veya minimal özeti kullanır.
+    """
+    # revise_draft'tan geldikten sonra draft zaten güncel; tekrar üretme.
+    # "--- REVISION ---" işaretçisi revise_draft tarafından eklenir.
+    existing = state.get("draft", "")
+    if "--- REVISION ---" in existing:
+        return {"draft": existing}
+
+    ticker = state["ticker"]
+    sentiment = state.get("sentiment_summary", "N/A")
+    price = state.get("price_data", {})
+    risks = state.get("risks", [])
+
+    price_val = price.get("price", "N/A")
+    pct = price.get("pct_change")
+    price_str = f"${price_val}" + (f" ({pct:+.2f}% 1mo)" if pct is not None else "")
+
+    if risks:
+        draft = (
+            f"[DRAFT] {ticker} Investment Brief\n\n"
+            f"Sentiment: {sentiment}\n"
+            f"Price: {price_str}\n\n"
+            f"Key Risks & Strategy (10-K):\n"
+            f"{risks[0][:500]}"
+        )
+    else:
+        short = state.get("draft", "")
+        draft = short if short else f"[DRAFT] {ticker} — {sentiment}. Price: {price_str}"
+
+    return {"draft": draft}
+
+
+# ---------------------------------------------------------------------------
+# NODE 6: revise  (Day 26 — YENİ, feedback entegrasyonu)
+# ---------------------------------------------------------------------------
+
+def revise_draft(state: FinanceState) -> dict:
+    """
+    Human feedback'i draft'a entegre eder.
+
+    Neden feedback alanı sıfırlanıyor?
+        revise → draft döngüsünde sonsuz tekrarı önlemek için.
+        Feedback temizlenince route_after_draft bir sonraki draft
+        interrupt'ta "approved" dalına gider.
+    """
+    draft = state.get("draft", "")
+    feedback = state.get("feedback", "")
+    revised = (
+        f"{draft}\n\n"
+        f"--- REVISION ---\n"
+        f"Editor feedback: {feedback}\n"
+        f"(Content updated based on above feedback.)"
+    )
+    return {"draft": revised, "feedback": ""}
+
+
+# ---------------------------------------------------------------------------
+# ROUTING: draft sonrası  (Day 26 — YENİ)
+# ---------------------------------------------------------------------------
+
+def route_after_draft(state: FinanceState) -> Literal["revise", "__end__"]:
+    """
+    Human onayı/red kararını state'teki feedback alanına göre verir.
+
+        feedback boş (onay) → "__end__" → END
+        feedback dolu (red) → "revise"  → revise node
+    """
+    return "revise" if state.get("feedback", "").strip() else "__end__"
+
+
+# ---------------------------------------------------------------------------
 # GRAF DERLEME
 # ---------------------------------------------------------------------------
 
-def build_finance_graph(checkpointer=None):
+def build_finance_graph(checkpointer=None, interrupt_after: list[str] | None = None):
     """
-    Conditional routing ile 5 node'lu branch'li grafı derler.
+    HITL destekli 7 node'lu grafı derler.
 
     Lineer (Day 23):
         collect_news → analyze_sentiment → fetch_price
@@ -212,27 +313,34 @@ def build_finance_graph(checkpointer=None):
 
     Checkpointing (Day 25):
         checkpointer=SqliteSaver → her node sonrası state SQLite'a yazılır.
-        Aynı thread_id ile resume edildiğinde kaldığı node'dan devam eder.
 
-    add_conditional_edges(source, routing_fn, mapping):
-        - routing_fn döndürdüğü string'e göre hedef node seçilir
-        - mapping: { routing_fn_output: target_node_name }
-        - mapping atlanırsa routing_fn'in döndürdüğü string doğrudan node adı olarak yorumlanır
+    HITL (Day 26):
+        fetch_price → draft  [interrupt_after=["draft"]]
+                        ├─ feedback boş → END   (approve)
+                        └─ feedback dolu → revise → draft (loop)
+
+    interrupt_after:
+        ["draft"] geçilirse graf draft node'undan sonra durur.
+        None veya [] geçilirse interrupt olmadan normal çalışır.
     """
     builder = StateGraph(FinanceState)
 
-    # Node'ları kaydet
+    # Node'ları kaydet (Day 23-25)
     builder.add_node("collect_news", collect_news)
     builder.add_node("analyze_sentiment", analyze_sentiment)
     builder.add_node("deep_analysis", deep_analysis)
     builder.add_node("short_brief", short_brief)
     builder.add_node("fetch_price", fetch_price)
 
+    # Day 26: HITL node'ları
+    builder.add_node("draft", write_draft)
+    builder.add_node("revise", revise_draft)
+
     # Lineer başlangıç
     builder.add_edge(START, "collect_news")
     builder.add_edge("collect_news", "analyze_sentiment")
 
-    # Conditional branch — Day 24'ün özü
+    # Conditional branch — Day 24
     builder.add_conditional_edges(
         "analyze_sentiment",
         route_by_sentiment,
@@ -243,9 +351,21 @@ def build_finance_graph(checkpointer=None):
     builder.add_edge("deep_analysis", "fetch_price")
     builder.add_edge("short_brief", "fetch_price")
 
-    builder.add_edge("fetch_price", END)
+    # Day 26: fetch_price → draft (interrupt noktası)
+    builder.add_edge("fetch_price", "draft")
 
-    return builder.compile(checkpointer=checkpointer)
+    # Day 26: draft → revise (feedback var) veya END (approved)
+    builder.add_conditional_edges(
+        "draft",
+        route_after_draft,
+        {"revise": "revise", "__end__": END},
+    )
+    builder.add_edge("revise", "draft")
+
+    return builder.compile(
+        checkpointer=checkpointer,
+        interrupt_after=interrupt_after or [],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -253,34 +373,49 @@ def build_finance_graph(checkpointer=None):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    graph = build_finance_graph()
+    import sys
+    from graph.checkpointer import make_checkpointer
 
-    # Mermaid diagram metnini stdout'a yaz (branch'ler görünür)
-    mermaid_text = graph.get_graph().draw_mermaid()
+    # Mermaid diagram
+    _graph_no_cp = build_finance_graph()
+    mermaid_text = _graph_no_cp.get_graph().draw_mermaid()
     print("=== Mermaid Diagram ===")
     print(mermaid_text)
 
-    # NVDA için grafı çalıştır
-    result = graph.invoke({"ticker": "NVDA", "messages": []})
-
-    print("\n=== Finance Graph Output ===")
-    print(f"Ticker     : {result['ticker']}")
-    print(f"News count : {len(result.get('news', []))}")
-    print(f"Sentiment  : {result.get('sentiment_summary')}")
-    price = result.get("price_data", {})
-    print(f"Price      : ${price.get('price')}  ({price.get('pct_change', 0):+.2f}% 1mo)")
-
-    # Branch sonucunu göster
-    if result.get("risks"):
-        print(f"\n[deep_analysis] Risks (first 200 chars):\n  {result['risks'][0][:200]}...")
-    elif result.get("draft"):
-        print(f"\n[short_brief] Draft:\n  {result['draft']}")
-
     # PNG olarak kaydet
     try:
-        png_bytes = graph.get_graph().draw_mermaid_png()
+        png_bytes = _graph_no_cp.get_graph().draw_mermaid_png()
         with open("graph/finance_graph.png", "wb") as f:
             f.write(png_bytes)
-        print("\nGraph PNG saved → graph/finance_graph.png")
+        print("Graph PNG saved → graph/finance_graph.png\n")
     except Exception as e:
-        print(f"\nPNG export skipped: {e}")
+        print(f"PNG export skipped: {e}\n")
+
+    # HITL demo: NVDA için interrupt_after=["draft"]
+    ticker = sys.argv[1] if len(sys.argv) > 1 else "NVDA"
+
+    with make_checkpointer("hitl_demo.db") as cp:
+        graph = build_finance_graph(checkpointer=cp, interrupt_after=["draft"])
+        config = {"configurable": {"thread_id": f"hitl-{ticker}-demo"}}
+
+        print(f"=== HITL Run: {ticker} ===")
+        result = graph.invoke({"ticker": ticker, "messages": []}, config)
+
+        print("\n[INTERRUPT] Graf draft node'unda durdu.")
+        print(f"Draft önizleme:\n{result.get('draft', '')[:400]}\n")
+
+        # Simüle onay
+        answer = input("Approve (a) / Reject with feedback (r)? [a]: ").strip().lower() or "a"
+
+        if answer == "r":
+            feedback = input("Feedback: ").strip()
+            graph.update_state(config, {"feedback": feedback})
+            print("\n[REVISE] Feedback uygulanıyor...")
+            revised = graph.invoke(None, config)
+            print(f"Revised draft:\n{revised.get('draft', '')[:400]}\n")
+            # Revised draft'ı onayla
+            graph.invoke(None, config)
+        else:
+            graph.invoke(None, config)
+
+        print("[DONE] Graf tamamlandı.")
