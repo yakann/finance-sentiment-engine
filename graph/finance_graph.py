@@ -1,11 +1,16 @@
 """
-Day 26 — Human-in-the-Loop (HITL) Draft Review
+Day 27 — Week-3 Tool-Use Loop, LangGraph Subgraph olarak bağlandı
 
-GENEL AKIŞ (HITL branch'li):
+Day 26'ya ek değişiklik:
+    collect_news node'u kaldırıldı; yerini build_research_subgraph() aldı.
+    Subgraph kendi içinde call_model → dispatch_tools döngüsü çalıştırır,
+    analyze_news_sentiment tool'u çağırır ve news alanını doldurur.
+
+GENEL AKIŞ (Day 27 — research_subgraph dahil):
     START
       │
       ▼
-  collect_news        ← Yahoo Finance RSS'den haber çek + LLM sentiment analizi
+  research_subgraph   ← Hafta-3 tool-use loop: LLM + analyze_news_sentiment tool
       │
       ▼
   analyze_sentiment   ← Bullish/bearish/neutral sayısını özetle
@@ -57,6 +62,7 @@ from langgraph.graph import END, START, StateGraph
 from agent.tools.finance import _GetStockDataInput, _get_stock_data
 from agent.tools.rag import _Query10KInput, _query_10k
 from agent.tools.sentiment import _AnalyzeNewsSentimentInput, _analyze_news_sentiment
+from graph.research_subgraph import build_research_subgraph
 from graph.state import FinanceState
 from schemas import NewsAnalysis
 
@@ -325,8 +331,9 @@ def build_finance_graph(checkpointer=None, interrupt_after: list[str] | None = N
     """
     builder = StateGraph(FinanceState)
 
-    # Node'ları kaydet (Day 23-25)
-    builder.add_node("collect_news", collect_news)
+    # Node'ları kaydet
+    # Day 27: collect_news → research_subgraph (Hafta-3 tool-use loop)
+    builder.add_node("collect_news", build_research_subgraph())
     builder.add_node("analyze_sentiment", analyze_sentiment)
     builder.add_node("deep_analysis", deep_analysis)
     builder.add_node("short_brief", short_brief)
