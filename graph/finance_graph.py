@@ -198,7 +198,7 @@ def fetch_price(state: FinanceState) -> dict:
 # GRAF DERLEME
 # ---------------------------------------------------------------------------
 
-def build_finance_graph():
+def build_finance_graph(checkpointer=None):
     """
     Conditional routing ile 5 node'lu branch'li grafı derler.
 
@@ -209,6 +209,10 @@ def build_finance_graph():
         collect_news → analyze_sentiment
                              ├─ bullish/bearish → deep_analysis → fetch_price
                              └─ neutral         → short_brief   → fetch_price
+
+    Checkpointing (Day 25):
+        checkpointer=SqliteSaver → her node sonrası state SQLite'a yazılır.
+        Aynı thread_id ile resume edildiğinde kaldığı node'dan devam eder.
 
     add_conditional_edges(source, routing_fn, mapping):
         - routing_fn döndürdüğü string'e göre hedef node seçilir
@@ -241,7 +245,7 @@ def build_finance_graph():
 
     builder.add_edge("fetch_price", END)
 
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)
 
 
 # ---------------------------------------------------------------------------
