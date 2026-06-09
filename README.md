@@ -214,6 +214,70 @@ python rag/rag_langchain.py
 
 ---
 
+## Day 21 — Brief CLI: End-to-End Investment Reports (`v0.2.0`)
+
+`brief.py` is a single-command CLI that wires together all four agent tools — stock data,
+news sentiment, web search, and 10-K RAG — and renders a two-page structured brief in Markdown.
+
+### Usage
+
+```bash
+python brief.py NVDA          # saves to briefs/NVDA.md
+python brief.py TSLA --print  # saves + prints to stdout
+python brief.py MSFT
+
+# or after `uv pip install -e .`:
+brief NVDA
+```
+
+### What the agent does
+
+| Step | Tool | Data gathered |
+|------|------|---------------|
+| 1 | `get_stock_data` | Current price, market cap, 1-month return |
+| 2 | `analyze_news_sentiment` | Top-5 headlines with bullish/bearish/neutral labels |
+| 3 | `web_search` | Analyst targets, latest headlines |
+| 4 | `query_10k` | Key risk factors from SEC 10-K via Qdrant RAG |
+| fallback | `web_search` | 10-K risks via web if ticker not indexed in Qdrant |
+
+### Brief structure
+
+Every brief (`briefs/<TICKER>.md`) has five sections:
+
+```
+# TICKER — Investment Brief
+## 1. Company Snapshot     ← price table + description
+## 2. Recent News & Sentiment  ← emoji-coded bullets + overall verdict
+## 3. Key Risk Factors     ← 5 risks from 10-K or web
+## 4. Analyst Verdict      ← Buy/Hold/Watch + one-sentence summary
+## 5. Sources              ← all URLs + data provenance
+```
+
+### Sample output (NVDA)
+
+```
+| Metric         | Value   |
+|----------------|---------|
+| Current Price  | $205.10 |
+| Market Cap     | $4.97T  |
+| 1-Month Return | -1.20%  |
+
+- 🟢 company_communication — NVIDIA highlighted as one of the best big company stocks…
+- ⚪ market_dynamics — Competitors closing market cap gap with Nvidia…
+
+**Overall Sentiment:** Neutral — mixed views: bullish investment signals offset by competition concerns.
+```
+
+### Tested tickers
+
+| Ticker | 10-K source | Brief |
+|--------|-------------|-------|
+| NVDA | Qdrant RAG (local) | [briefs/NVDA.md](briefs/NVDA.md) |
+| TSLA | Web search fallback | [briefs/TSLA.md](briefs/TSLA.md) |
+| MSFT | Web search fallback | [briefs/MSFT.md](briefs/MSFT.md) |
+
+---
+
 ## Day 28 — LangGraph Full System (`v0.3.0`)
 
 Full finance pipeline as a LangGraph with SQLite checkpointing, conditional routing, human-in-the-loop interrupts, and a research subgraph.
@@ -301,69 +365,5 @@ with make_checkpointer("runs.db") as cp:
 
 ```bash
 # Run live for all three tickers
-python test_graph_day28.py --all
+python tests/test_graph_day28.py --all
 ```
-
----
-
-## Day 21 — Brief CLI: End-to-End Investment Reports (`v0.2.0`)
-
-`brief.py` is a single-command CLI that wires together all four agent tools — stock data,
-news sentiment, web search, and 10-K RAG — and renders a two-page structured brief in Markdown.
-
-### Usage
-
-```bash
-python brief.py NVDA          # saves to briefs/NVDA.md
-python brief.py TSLA --print  # saves + prints to stdout
-python brief.py MSFT
-
-# or after `uv pip install -e .`:
-brief NVDA
-```
-
-### What the agent does
-
-| Step | Tool | Data gathered |
-|------|------|---------------|
-| 1 | `get_stock_data` | Current price, market cap, 1-month return |
-| 2 | `analyze_news_sentiment` | Top-5 headlines with bullish/bearish/neutral labels |
-| 3 | `web_search` | Analyst targets, latest headlines |
-| 4 | `query_10k` | Key risk factors from SEC 10-K via Qdrant RAG |
-| fallback | `web_search` | 10-K risks via web if ticker not indexed in Qdrant |
-
-### Brief structure
-
-Every brief (`briefs/<TICKER>.md`) has five sections:
-
-```
-# TICKER — Investment Brief
-## 1. Company Snapshot     ← price table + description
-## 2. Recent News & Sentiment  ← emoji-coded bullets + overall verdict
-## 3. Key Risk Factors     ← 5 risks from 10-K or web
-## 4. Analyst Verdict      ← Buy/Hold/Watch + one-sentence summary
-## 5. Sources              ← all URLs + data provenance
-```
-
-### Sample output (NVDA)
-
-```
-| Metric         | Value   |
-|----------------|---------|
-| Current Price  | $205.10 |
-| Market Cap     | $4.97T  |
-| 1-Month Return | -1.20%  |
-
-- 🟢 company_communication — NVIDIA highlighted as one of the best big company stocks…
-- ⚪ market_dynamics — Competitors closing market cap gap with Nvidia…
-
-**Overall Sentiment:** Neutral — mixed views: bullish investment signals offset by competition concerns.
-```
-
-### Tested tickers
-
-| Ticker | 10-K source | Brief |
-|--------|-------------|-------|
-| NVDA | Qdrant RAG (local) | [briefs/NVDA.md](briefs/NVDA.md) |
-| TSLA | Web search fallback | [briefs/TSLA.md](briefs/TSLA.md) |
-| MSFT | Web search fallback | [briefs/MSFT.md](briefs/MSFT.md) |
