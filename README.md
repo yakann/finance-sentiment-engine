@@ -214,6 +214,98 @@ python rag_langchain.py
 
 ---
 
+## Day 28 — LangGraph Full System (`v0.3.0`)
+
+Full finance pipeline as a LangGraph with SQLite checkpointing, conditional routing, human-in-the-loop interrupts, and a research subgraph.
+
+### Full Graph Diagram
+
+```mermaid
+flowchart TD
+    START(["__start__"])
+    END(["__end__"])
+
+    subgraph collect_news["collect_news  ·  Research Subgraph"]
+        CM["call_model\nOpenAI gpt-4o-mini + tools"]
+        DT["dispatch_tools\nanalyze_news_sentiment"]
+        CM -->|"pending_tool_calls?"| SC{"should_continue"}
+        SC -->|"tool calls present"| DT
+        DT -->|"loop back"| CM
+        SC -->|"empty → END"| RSEND(["subgraph end"])
+    end
+
+    AS["analyze_sentiment\nbullish/bearish/neutral counts"]
+    DA["deep_analysis\n10-K RAG query"]
+    SB["short_brief\nno-RAG quick summary"]
+    FP["fetch_price\nyfinance"]
+    DR["draft\n⚡ INTERRUPT point"]
+    REV["revise\nfeedback integration"]
+
+    START --> collect_news
+    collect_news --> AS
+
+    AS -->|"BULLISH or BEARISH"| DA
+    AS -->|"NEUTRAL"| SB
+
+    DA --> FP
+    SB --> FP
+    FP --> DR
+
+    DR -->|"feedback empty → approved"| END
+    DR -->|"feedback set → reject"| REV
+    REV -->|"loop back"| DR
+```
+
+### State Transitions
+
+| Node | State field written | Example value |
+|------|---------------------|---------------|
+| `collect_news` (subgraph) | `news: list[NewsAnalysis]` | `[{ticker:"NVDA", sentiment:"bullish", urgency:"high", ...}, ...]` |
+| `analyze_sentiment` | `sentiment_summary: str` | `"BULLISH — 3 bullish, 1 bearish, 1 neutral (5 articles)"` |
+| `deep_analysis` | `risks: list[str]` | `["Key risks include GPU competition and export controls..."]` |
+| `short_brief` | `draft: str` | `"[SHORT BRIEF] NVDA — NEUTRAL. Top headlines: ..."` |
+| `fetch_price` | `price_data: dict` | `{ticker:"NVDA", price:134.5, pct_change:-1.2}` |
+| `draft` | `draft: str` | `"[DRAFT] NVDA Investment Brief\nSentiment: BULLISH\nPrice: $134.5..."` |
+| `revise` | `draft: str`, `feedback: str` | revised draft + `feedback: ""` (cleared) |
+
+### Checkpointing: Traceable Runs
+
+Each ticker run uses an isolated `thread_id` in a SQLite database:
+
+```python
+from graph.checkpointer import make_checkpointer
+from graph.finance_graph import build_finance_graph
+
+with make_checkpointer("runs.db") as cp:
+    graph = build_finance_graph(checkpointer=cp)
+    config = {"configurable": {"thread_id": "v0.3.0-nvda"}}
+
+    result = graph.invoke({"ticker": "NVDA", "messages": []}, config)
+
+    # Inspect checkpoint state after run
+    state = graph.get_state(config)
+    print(state.values["draft"])
+
+    # Walk step history
+    for step in graph.get_state_history(config):
+        print(step.metadata["step"], step.next)
+```
+
+### Tested tickers (v0.3.0)
+
+| Ticker | Sentiment route | 10-K RAG | Checkpointed |
+|--------|-----------------|----------|--------------|
+| NVDA | deep_analysis (bullish) | ✅ Qdrant | ✅ |
+| TSLA | deep_analysis / short_brief | ✅ web fallback | ✅ |
+| MSFT | deep_analysis / short_brief | ✅ web fallback | ✅ |
+
+```bash
+# Run live for all three tickers
+python test_graph_day28.py --all
+```
+
+---
+
 ## Day 21 — Brief CLI: End-to-End Investment Reports (`v0.2.0`)
 
 `brief.py` is a single-command CLI that wires together all four agent tools — stock data,
