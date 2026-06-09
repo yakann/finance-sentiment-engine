@@ -8,6 +8,7 @@ from openai import OpenAI, AsyncOpenAI, RateLimitError
 from tenacity import retry, stop_after_attempt, retry_if_exception_type
 from dotenv import load_dotenv
 from pathlib import Path
+from langsmith import traceable
 
 if TYPE_CHECKING:
     from agent.tools.base import Tool
@@ -51,6 +52,7 @@ class GroqProvider(LLMProvider):
             self._async_client = AsyncOpenAI(**self._groq_kwargs)
         return self._async_client
 
+    @traceable(run_type="llm", name="groq_generate")
     def generate(
         self,
         messages,

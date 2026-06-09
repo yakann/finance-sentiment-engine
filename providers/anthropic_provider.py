@@ -5,6 +5,7 @@ from providers.base import LLMProvider, LLMUsage, LLMResponse, ToolCall, NextAct
 from dotenv import load_dotenv
 from pathlib import Path
 import anthropic
+from langsmith import traceable
 
 if TYPE_CHECKING:
     from agent.tools.base import Tool
@@ -26,6 +27,7 @@ class AnthropicProvider(LLMProvider):
             self._async_client = anthropic.AsyncAnthropic()
         return self._async_client
 
+    @traceable(run_type="llm", name="anthropic_generate")
     def generate(
         self,
         messages,

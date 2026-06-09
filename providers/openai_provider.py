@@ -6,6 +6,7 @@ from providers.base import LLMProvider, LLMUsage, LLMResponse, ToolCall, NextAct
 from openai import OpenAI, AsyncOpenAI
 from dotenv import load_dotenv
 from pathlib import Path
+from langsmith import traceable
 
 if TYPE_CHECKING:
     from agent.tools.base import Tool
@@ -27,6 +28,7 @@ class OpenAIProvider(LLMProvider):
             self._async_client = AsyncOpenAI()
         return self._async_client
 
+    @traceable(run_type="llm", name="openai_generate")
     def generate(
         self,
         messages,
