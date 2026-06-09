@@ -23,7 +23,6 @@ result = registry.dispatch("get_stock_data", {"ticker": "NVDA", "period": "1mo"}
 for k, v in result.items():
     print(f"  {k}: {v}")
 
-# Only test web_search if the key is set
 if os.environ.get("TAVILY_API_KEY"):
     print("\n=== Test: web_search → NVDA latest news ===")
     results = registry.dispatch("web_search", {"query": "NVDA stock news today", "max_results": 3})

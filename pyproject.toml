@@ -38,9 +38,10 @@ brief = "brief:main"
 py-modules = ["brief"]
 
 [tool.setuptools.packages.find]
-include = ["agent*", "analyzer*", "parser*", "providers*", "report*", "scraper*"]
+include = ["agent*", "analyzer*", "graph*", "parser*", "providers*", "rag*", "report*", "scraper*"]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = ["slow: marks tests as slow (live network calls, skipped by default)"]
 
 [dependency-groups]

@@ -106,7 +106,56 @@ def get_vectorstore() -> QdrantVectorStore:
 
 
 # ── 3. Build LCEL chain ───────────────────────────────────────────────────────
-def build_chain(vectorstore: QdrantVectorStore):
+def build_chain(vectorstore: QdrantVectorStore) -> RunnablePassthrough:
+    """Build a two-stage RAG chain using LCEL.
+
+    Pipeline (left to right):
+        query (str)
+          │
+          ├─▶ [base_retriever]  QdrantVectorStore cosine search → top-10 Documents
+          │         │
+          │   [CohereRerank]    Cross-encoder rerank → top-5 Documents
+          │         │
+          │   [format_docs]     list[Document] → formatted context string
+          │
+          ├─▶ [RunnablePassthrough]  query passes through unchanged as "question"
+          │
+          ▼
+        [ChatPromptTemplate]   merges {context} + {question} into a chat prompt
+          │
+        [ChatOpenAI]           gpt-4o-mini generates the answer
+          │
+        [StrOutputParser]      AIMessage → plain string
+          │
+          ▼
+        answer (str)
+
+    Two-stage retrieval detail:
+        Stage 1 — bi-encoder (fast, coarse):
+            OpenAI text-embedding-3-small embeds the query and does ANN search
+            in Qdrant (HNSW). Returns TOP_K_RETRIEVE (10) candidates with
+            cosine similarity scores.
+
+        Stage 2 — cross-encoder (slow, fine-grained):
+            Cohere rerank-v3.5 concatenates query + each passage as a single
+            input and scores relevance. Returns the top TOP_K_FINAL (5)
+            documents, stored in doc.metadata["relevance_score"].
+
+    Args:
+        vectorstore: An already-populated QdrantVectorStore instance.
+
+    Returns:
+        A compiled LCEL Runnable. Call ``chain.invoke(query: str) -> str``.
+
+    Raises:
+        EnvironmentError: If COHERE_API_KEY is not set in the environment.
+
+    Example::
+
+        vectorstore = get_vectorstore()
+        chain = build_chain(vectorstore)
+        answer = chain.invoke("What are NVIDIA's main AI risks?")
+    """
     cohere_api_key = os.getenv("COHERE_API_KEY")
     if not cohere_api_key:
         raise EnvironmentError(

@@ -190,7 +190,7 @@ class NumPyRAG:
         self._chunk_map: dict[str, dict] = {}
 
     def setup(self) -> None:
-        from rag_numpy import load_10k, chunk_sections, embed_chunks, DATA_PATH
+        from rag.rag_numpy import load_10k, chunk_sections, embed_chunks, DATA_PATH
 
         print("  [numpy] Loading & chunking 10-K...")
         sections = load_10k(DATA_PATH)
@@ -201,7 +201,7 @@ class NumPyRAG:
         print(f"  [numpy] Ready — matrix {self._embeddings.shape}")
 
     def query(self, q: str) -> dict:
-        from rag_numpy import rag_answer
+        from rag.rag_numpy import rag_answer
 
         result = rag_answer(q, self._embeddings, self._chunks)
         # rag_numpy.rag_answer returns chunk_ids; look up full dicts for section info.
@@ -219,7 +219,7 @@ class QdrantRAG:
     name = "qdrant"
 
     def setup(self) -> None:
-        from rag_qdrant import load_10k, chunk_sections, build_qdrant_index, DATA_PATH
+        from rag.rag_qdrant import load_10k, chunk_sections, build_qdrant_index, DATA_PATH
 
         print("  [qdrant] Loading & chunking 10-K...")
         sections = load_10k(DATA_PATH)
@@ -229,7 +229,7 @@ class QdrantRAG:
         print("  [qdrant] Ready.")
 
     def query(self, q: str) -> dict:
-        from rag_qdrant import qdrant_search, rag_answer
+        from rag.rag_qdrant import qdrant_search, rag_answer
 
         top_chunks = qdrant_search(q, top_k=5)
         answer = rag_answer(q, top_chunks)
@@ -250,7 +250,7 @@ class LangChainRAG:
         self._cohere_key: str = ""
 
     def setup(self) -> None:
-        from rag_langchain import get_vectorstore
+        from rag.rag_langchain import get_vectorstore
 
         print("  [langchain] Initialising vectorstore (skips embedding if collection exists)...")
         self._vectorstore = get_vectorstore()

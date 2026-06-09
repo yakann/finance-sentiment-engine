@@ -209,7 +209,7 @@ uv run python eval/rag_eval.py
 
 ```bash
 # Run the LangChain port (requires Qdrant running on localhost:6333)
-python rag_langchain.py
+python rag/rag_langchain.py
 ```
 
 ---

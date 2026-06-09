@@ -14,3 +14,13 @@ wheels/
 
 # Editor
 .vscode/
+
+# Runtime artifacts
+*.db
+traces/
+graph/*.png
+.DS_Store
+
+# Generated outputs (rebuilt on demand)
+briefs/
+experiments/

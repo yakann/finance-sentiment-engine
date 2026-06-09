@@ -46,7 +46,7 @@ print(f"\n--- Iteration log ({result.iterations} iterations, {result.total_token
 for log in result.logs:
     if log.tool_calls:
         for tc in log.tool_calls:
-            print(f"  [iter {log.iteration}] tool={tc['name']}  result_snippet={tc['result'][:120]}")
+            print(f"  [iter {log.iteration}] tool={tc.name}  status={tc.status}")
     else:
         print(f"  [iter {log.iteration}] (no tool calls — final answer)")
 
