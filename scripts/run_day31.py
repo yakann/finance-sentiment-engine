@@ -21,6 +21,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
@@ -42,9 +43,9 @@ load_dotenv(ROOT / ".env", override=True)
 from openai import OpenAI as OpenAIClient
 
 # LangSmith'in iki ana değerlendirme fonksiyonu:
-#   evaluate()            → tek modeli dataset'e karşı koşturur + evaluator'ları çalıştırır
+#   aevaluate()            → async target'ları destekleyen evaluate versiyonu
 #   evaluate_comparative() → iki farklı experiment'ı örnek-bazlı karşılaştırır (pairwise)
-from langsmith import evaluate
+from langsmith import aevaluate
 from langsmith.evaluation import evaluate_comparative
 
 # Day 28/29'dan gelen altyapı:
@@ -380,7 +381,7 @@ def _aggregate(results) -> dict[str, float]:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def main() -> None:
+async def main() -> None:
     print("=" * 65)
     print("Day 31 — LLM-as-Judge Evaluators + 6-Model Baseline")
     print(f"  Dataset : {DATASET_NAME}")
@@ -418,7 +419,7 @@ def main() -> None:
             #      → sentiment_accuracy(outputs, reference_outputs)
             #      → reasoning_quality(inputs, outputs, reference_outputs)
             #   4. Tüm sonuçları LangSmith'e yükler ve ExperimentResults döner
-            results = evaluate(
+            results = await aevaluate(
                 target,
                 data=DATASET_NAME,
                 evaluators=[sentiment_accuracy, reasoning_quality],
@@ -552,4 +553,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
