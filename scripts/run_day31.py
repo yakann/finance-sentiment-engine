@@ -372,8 +372,11 @@ async def _aggregate(results) -> dict[str, float]:
     """
     buckets: dict[str, list[float]] = {}
     async for row in results:
-        # row.evaluation_results → {"results": [EvaluationResult, ...]}
-        for ev in (row.evaluation_results or {}).get("results", []):
+        # aevaluate her row'u dict olarak döndürür (nesne değil).
+        # Yapı: {"run": ..., "example": ..., "evaluation_results": {"results": [...]}}
+        eval_results = row.get("evaluation_results") or {}
+        for ev in eval_results.get("results", []):
+            # ev bir EvaluationResult nesnesi; .key ve .score attribute'ları var.
             if ev.score is not None:
                 buckets.setdefault(ev.key, []).append(ev.score)
     # Her key için liste ortalaması
