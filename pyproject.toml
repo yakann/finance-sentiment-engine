@@ -30,6 +30,8 @@ dependencies = [
     "tenacity>=9.1.4",
     "tiktoken>=0.13.0",
     "yfinance>=1.4.1",
+    "braintrust>=0.0.170",
+    "autoevals>=0.0.73",
 ]
 
 [project.scripts]
