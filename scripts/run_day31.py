@@ -72,15 +72,14 @@ DATASET_NAME = "finance-sentiment-v1"
 # gpt-4o-mini seçildi: hızlı, ucuz, JSON mode destekliyor.
 JUDGE_MODEL = "gpt-4o-mini"
 
-# Karşılaştıracağımız 6 provider × model kombinasyonu.
+# Karşılaştıracağımız 4 provider × model kombinasyonu.
 # Her biri ayrı bir LangSmith "experiment" olarak kaydedilecek.
+# Not: Anthropic API kredisi olmadığı için o combolar çıkarıldı.
 EVAL_COMBOS: list[tuple[str, str]] = [
     ("openai",    "gpt-4.1-mini"),           # OpenAI'ın küçük ama güçlü modeli
     ("openai",    "gpt-4.1-nano"),            # OpenAI'ın en ucuz/hızlı modeli
     ("groq",      "llama-3.3-70b-versatile"), # Groq'ta çalışan Meta'nın 70B Llama'sı
     ("groq",      "llama-3.1-8b-instant"),    # Groq'ta çalışan küçük 8B Llama
-    ("anthropic", "claude-haiku-4-5-20251001"), # Anthropic'in yeni Haiku modeli
-    ("anthropic", "claude-3-5-haiku-20241022"), # Anthropic'in önceki Haiku modeli
 ]
 
 # Groq ücretsiz katmanında dakika başına token limiti (TPM) çok dar:
@@ -88,9 +87,8 @@ EVAL_COMBOS: list[tuple[str, str]] = [
 # Bu yüzden Groq için eşzamanlı istek sayısını 2'ye düşürüyoruz.
 # Daha yüksek değer → 429 RateLimitError fırtınası.
 _CONCURRENCY: dict[str, int] = {
-    "openai":    5,  # OpenAI limitleri rahat, 5 paralel istek sorunsuz
-    "groq":      2,  # TPM limiti nedeniyle düşük tutuldu
-    "anthropic": 3,  # Anthropic orta seviye limit
+    "openai": 5,  # OpenAI limitleri rahat, 5 paralel istek sorunsuz
+    "groq":   2,  # TPM limiti nedeniyle düşük tutuldu
 }
 
 # Judge client singleton: her evaluator çağrısında yeniden OpenAI() oluşturmamak için
@@ -363,14 +361,17 @@ def make_target(provider_name: str, model: str):
 #
 # _aggregate() tüm örnekleri gezerek her evaluator için ortalama score hesaplar.
 
-def _aggregate(results) -> dict[str, float]:
-    """ExperimentResults'tan her evaluator key'i için ortalama score döndürür.
+async def _aggregate(results) -> dict[str, float]:
+    """AsyncExperimentResults'tan her evaluator key'i için ortalama score döndürür.
+
+    aevaluate() AsyncExperimentResults döndürür; normal for döngüsüyle iterate
+    edilemiyor — async for gerekiyor.
 
     Örnek dönüş:
       {"sentiment_accuracy": 0.72, "reasoning_quality": 0.68}
     """
     buckets: dict[str, list[float]] = {}
-    for row in results:
+    async for row in results:
         # row.evaluation_results → {"results": [EvaluationResult, ...]}
         for ev in (row.evaluation_results or {}).get("results", []):
             if ev.score is not None:
@@ -435,7 +436,7 @@ async def main() -> None:
             experiment_names.append(exp_name)
 
             # Tüm örneklerin score'larını toplayıp ortalama hesapla
-            scores = _aggregate(results)
+            scores = await _aggregate(results)
 
             row = {
                 "combo":              combo_key,
