@@ -4,7 +4,7 @@ import random
 from typing import TYPE_CHECKING
 from pydantic import BaseModel
 from providers.base import LLMProvider, LLMUsage, LLMResponse
-from openai import OpenAI, AsyncOpenAI, RateLimitError
+from openai import OpenAI, AsyncOpenAI, RateLimitError, APIConnectionError
 from tenacity import retry, stop_after_attempt, retry_if_exception_type
 from dotenv import load_dotenv
 from pathlib import Path
@@ -94,7 +94,9 @@ class GroqProvider(LLMProvider):
         return schema.model_validate_json(response.choices[0].message.content)
 
     @retry(
-        retry=retry_if_exception_type(RateLimitError),
+        # RateLimitError: 429 yanıtı → retry-after header'a göre bekle
+        # APIConnectionError: SSL/ağ kopması → aynı backoff ile tekrar dene
+        retry=retry_if_exception_type((RateLimitError, APIConnectionError)),
         wait=_groq_retry_wait,
         stop=stop_after_attempt(6),
         reraise=True,
