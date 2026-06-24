@@ -32,6 +32,7 @@ dependencies = [
     "yfinance>=1.4.1",
     "braintrust>=0.0.170",
     "autoevals>=0.0.73",
+    "ragas>=0.4.3",
 ]
 
 [project.scripts]
