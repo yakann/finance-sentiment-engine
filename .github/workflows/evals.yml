@@ -1,0 +1,160 @@
+name: Eval Pipeline
+
+on:
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: "0 2 * * *"   # nightly at 02:00 UTC
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode"
+        required: false
+        default: "fast"
+        type: choice
+        options: [fast, full]
+
+# Cancel in-flight runs for the same PR (not for nightly/manual)
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ── Fast eval: every PR ────────────────────────────────────────────────────
+  eval-fast:
+    name: "Eval (fast) — 10 examples, gpt-4.1-mini"
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'fast')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pip install uv --quiet
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run fast eval (10 examples)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          uv run python scripts/run_eval_ci.py \
+            --subset 10 \
+            --threshold 0.85 \
+            --output-json eval_ci_results.json \
+            --output-md   eval_summary.md
+
+      - name: Post PR comment
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('eval_summary.md', 'utf8');
+            const body = [
+              '<!-- eval-bot -->',
+              '### 🤖 Eval Bot — Sentiment Accuracy Gate',
+              '',
+              summary,
+              '',
+              `> Run: [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+            ].join('\n');
+
+            // Update existing comment if present, else create
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes('<!-- eval-bot -->'));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner:      context.repo.owner,
+                repo:       context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner:       context.repo.owner,
+                repo:        context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-fast-results
+          path: |
+            eval_ci_results.json
+            eval_summary.md
+
+  # ── Full eval: nightly ─────────────────────────────────────────────────────
+  eval-full:
+    name: "Eval (full) — all examples, all combos"
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'full')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pip install uv --quiet
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run full eval (all examples, all combos)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GROQ_API_KEY:   ${{ secrets.GROQ_API_KEY }}
+        run: |
+          uv run python scripts/run_eval_ci.py \
+            --full \
+            --threshold 0.85 \
+            --output-json eval_ci_results.json \
+            --output-md   eval_summary.md
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-full-results-${{ github.run_id }}
+          path: |
+            eval_ci_results.json
+            eval_summary.md
+
+      - name: Fail on regression
+        run: |
+          python - <<'EOF'
+          import json, sys
+          data = json.load(open("eval_ci_results.json"))
+          if not data["passed"]:
+              print("Nightly eval FAILED — regression detected")
+              for r in data["results"]:
+                  if r.get("error"):
+                      print(f"  ERROR   {r['provider']}/{r['model']}: {r['error']}")
+                  elif r["sentiment_acc"] < data["threshold"]:
+                      print(f"  BELOW   {r['provider']}/{r['model']} "
+                            f"sentiment_acc={r['sentiment_acc']:.0%} "
+                            f"< {data['threshold']:.0%}")
+              sys.exit(1)
+          print("Nightly eval PASSED")
+          EOF
