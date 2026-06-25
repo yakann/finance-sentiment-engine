@@ -1,0 +1,19 @@
+{
+  "threshold": 0.85,
+  "passed": false,
+  "n_labels": 3,
+  "results": [
+    {
+      "provider": "openai",
+      "model": "gpt-4.1-mini",
+      "sentiment_acc": 0.6666666666666666,
+      "urgency_acc": 1.0,
+      "key_event_acc": 1.0,
+      "avg_latency_ms": 2856.7361246678047,
+      "cost_usd": 0.0013724000000000002,
+      "n": 3,
+      "elapsed_s": 3.7,
+      "error": null
+    }
+  ]
+}
