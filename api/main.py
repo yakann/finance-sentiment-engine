@@ -1,4 +1,4 @@
-"""Day 36 + Day 37: FastAPI wrapper for the finance-sentiment agent.
+"""Day 36 + Day 37 + Day 39: FastAPI wrapper for the finance-sentiment agent.
 
 Usage:
     uvicorn api.main:app --reload
@@ -33,17 +33,24 @@ from datetime import date
 from typing import AsyncIterator
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 load_dotenv()
+
+limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
     title="Finance Sentiment Engine",
     description="HTTP interface for the finance-sentiment agent pipeline",
     version="1.0.0",
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
@@ -84,12 +91,16 @@ def _get_cache():
 
 
 @app.post("/run", response_model=AgentResponse)
-def run(req: RunRequest) -> AgentResponse:
+@limiter.limit("10/minute")
+def run(request: Request, req: RunRequest) -> AgentResponse:
     """Run the 4-tool agent for the given ticker and return the investment brief.
 
     Day 38: results are cached in Redis using semantic vector similarity so that
     identical (or near-identical) queries are answered in < 100 ms without
     re-running the full agent pipeline.
+
+    Day 39: rate-limited to 10 req/min per IP; daily budget guard blocks requests
+    once $5 of LLM spend is reached for the calendar day.
     """
     from agent.loop import run_agent
     from agent.tracing import configure_logging
@@ -99,14 +110,21 @@ def run(req: RunRequest) -> AgentResponse:
     from agent.tools.rag import query_10k
     from agent.registry import ToolRegistry
     from providers.factory import get_provider
+    from middleware.cost import track_cost, check_budget, BudgetExceededError
 
     configure_logging()
+
+    # ── Daily budget guard ─────────────────────────────────────────────────────
+    try:
+        check_budget()
+    except BudgetExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
 
     ticker = req.ticker.upper()
     today = date.today().strftime("%B %d, %Y")
     prompt = _BRIEF_PROMPT.format(ticker=ticker, date=today)
 
-    # ── Semantic cache lookup ──────────────────────────────────────────────────
+    # ── Semantic cache lookup (free — no LLM cost) ────────────────────────────
     sc = _get_cache()
     if sc is not None:
         cached = sc.get(prompt)
@@ -126,7 +144,8 @@ def run(req: RunRequest) -> AgentResponse:
     registry.register(analyze_news_sentiment)
     registry.register(query_10k)
 
-    provider = get_provider("openai", "gpt-4o-mini")
+    _MODEL = "gpt-4o-mini"
+    provider = get_provider("openai", _MODEL)
 
     try:
         result = run_agent(
@@ -137,6 +156,9 @@ def run(req: RunRequest) -> AgentResponse:
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    # ── Track cost ─────────────────────────────────────────────────────────────
+    track_cost(_MODEL, total_tokens=result.total_tokens)
 
     # ── Store result in cache ──────────────────────────────────────────────────
     if sc is not None:
@@ -243,8 +265,11 @@ async def _event_stream(ticker: str) -> AsyncIterator[str]:
 
 
 @app.post("/stream")
-async def stream(req: StreamRequest) -> StreamingResponse:
+@limiter.limit("10/minute")
+async def stream(request: Request, req: StreamRequest) -> StreamingResponse:  # noqa: ARG001
     """LangGraph pipeline'ını çalıştırır ve ilerlemeyi SSE olarak akıtır.
+
+    Day 39: rate-limited to 10 req/min per IP.
 
     Örnek:
         curl -N localhost:8000/stream \\
@@ -260,6 +285,20 @@ async def stream(req: StreamRequest) -> StreamingResponse:
             "X-Accel-Buffering": "no",  # nginx buffer'lamasın → anında flush
         },
     )
+
+
+# ── Day 39: Cost stats endpoint ───────────────────────────────────────────────
+
+@app.get("/stats")
+def stats(day: str = Query(default=None, description="Date in YYYY-MM-DD format (default: today)")) -> dict:
+    """Return daily LLM cost summary from Redis.
+
+    Example:
+        GET /stats
+        GET /stats?day=2026-06-28
+    """
+    from middleware.cost import get_daily_stats
+    return get_daily_stats(day)
 
 
 # ── Brief prompt (shared with brief.py CLI) ───────────────────────────────────
