@@ -35,6 +35,7 @@ dependencies = [
     "ragas>=0.4.3",
     "fastapi>=0.138.1",
     "uvicorn>=0.49.0",
+    "redis>=8.0.1",
 ]
 
 [project.scripts]

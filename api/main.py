@@ -71,9 +71,26 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+def _get_cache():
+    """Return a SemanticCache instance if Redis is reachable, else None."""
+    try:
+        from cache.semantic_cache import SemanticCache
+        sc = SemanticCache()
+        if sc.ping():
+            return sc
+    except Exception:
+        pass
+    return None
+
+
 @app.post("/run", response_model=AgentResponse)
 def run(req: RunRequest) -> AgentResponse:
-    """Run the 4-tool agent for the given ticker and return the investment brief."""
+    """Run the 4-tool agent for the given ticker and return the investment brief.
+
+    Day 38: results are cached in Redis using semantic vector similarity so that
+    identical (or near-identical) queries are answered in < 100 ms without
+    re-running the full agent pipeline.
+    """
     from agent.loop import run_agent
     from agent.tracing import configure_logging
     from agent.tools.finance import get_stock_data
@@ -86,7 +103,23 @@ def run(req: RunRequest) -> AgentResponse:
     configure_logging()
 
     ticker = req.ticker.upper()
+    today = date.today().strftime("%B %d, %Y")
+    prompt = _BRIEF_PROMPT.format(ticker=ticker, date=today)
 
+    # ── Semantic cache lookup ──────────────────────────────────────────────────
+    sc = _get_cache()
+    if sc is not None:
+        cached = sc.get(prompt)
+        if cached is not None:
+            return AgentResponse(
+                ticker=ticker,
+                brief=cached,
+                iterations=0,
+                total_tokens=0,
+                trace_path=None,
+            )
+
+    # ── Cache miss → run agent ─────────────────────────────────────────────────
     registry = ToolRegistry()
     registry.register(get_stock_data)
     registry.register(web_search)
@@ -94,9 +127,6 @@ def run(req: RunRequest) -> AgentResponse:
     registry.register(query_10k)
 
     provider = get_provider("openai", "gpt-4o-mini")
-
-    today = date.today().strftime("%B %d, %Y")
-    prompt = _BRIEF_PROMPT.format(ticker=ticker, date=today)
 
     try:
         result = run_agent(
@@ -107,6 +137,13 @@ def run(req: RunRequest) -> AgentResponse:
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    # ── Store result in cache ──────────────────────────────────────────────────
+    if sc is not None:
+        try:
+            sc.set(prompt, result.answer)
+        except Exception:
+            pass
 
     return AgentResponse(
         ticker=ticker,
