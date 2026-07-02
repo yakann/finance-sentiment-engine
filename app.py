@@ -1,14 +1,17 @@
-"""Day 41: Streamlit demo UI for Finance Sentiment Engine."""
+"""Streamlit demo UI for Finance Sentiment Engine."""
 from __future__ import annotations
 
+import os
 import re
 import time
-from datetime import date
 
+import requests
 import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()
+
+API_URL = os.getenv("API_URL", "https://finance-sentiment-engine.fly.dev")
 
 st.set_page_config(
     page_title="Finance Sentiment Engine",
@@ -87,129 +90,58 @@ with col_clear:
     clear = st.button("🗑️ Clear cache", disabled=not ticker_base, use_container_width=True)
 
 if clear and ticker_base:
-    from cache.cache_utils import get_cache as _get_cache_for_clear
-    from datetime import date as _date
-    _sc = _get_cache_for_clear()
-    if _sc:
-        _key = f"{ticker}::{_date.today().strftime('%B %d, %Y')}"
-        deleted = _sc.delete(_key)
-        if deleted:
+    try:
+        r = requests.delete(f"{API_URL}/cache/{ticker}", timeout=10)
+        if r.status_code == 200:
             st.success(f"Cache cleared for **{ticker}**.")
         else:
             st.info(f"No cache entry found for **{ticker}** today.")
-    else:
-        st.warning("Redis not reachable — nothing to clear.")
+    except Exception:
+        st.warning("Cache service not reachable.")
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 if run and ticker_base:
-    from agent.loop import run_agent
-    from agent.registry import ToolRegistry
-    from agent.tools.finance import _GetStockDataInput, _get_stock_data, get_stock_data
-    from agent.tools.rag import query_10k
-    from agent.tools.search import web_search
-    from agent.tools.sentiment import analyze_news_sentiment
-    from agent.tools.financial_metrics import get_financial_metrics
-    from agent.tools.valuation import get_valuation
-    from agent.tools.competitor import get_competitor_analysis
-    from agent.tools.earnings import get_earnings
-    from agent.tools.technical import get_technical_analysis
-    from agent.tracing import configure_logging
-    from providers.factory import get_provider
-
-    # ── Ticker validation (early exit) ───────────────────────────────────────
-    with st.spinner(f"Validating ticker **{ticker}**…"):
-        probe = _get_stock_data(_GetStockDataInput(ticker=ticker))
-    if "error" in probe:
-        st.error(
-            f"**Ticker not found:** `{ticker}`\n\n"
-            f"{probe['error']}\n\n"
-            f"Check the symbol and exchange — e.g. for BIST use `THYAO` + Turkey (BIST)."
-        )
-        st.stop()
-
-    configure_logging()
-
-    registry = ToolRegistry()
-    for tool in [
-        get_stock_data, web_search, analyze_news_sentiment, query_10k,
-        get_financial_metrics, get_valuation, get_competitor_analysis,
-        get_earnings, get_technical_analysis,
-    ]:
-        registry.register(tool)
-
-    provider = get_provider("openai", "gpt-4o-mini")
-    today = date.today().strftime("%B %d, %Y")
-
-    from agent.prompts import BRIEF_PROMPT as _BRIEF_PROMPT
-    from cache.cache_utils import get_cache as _get_cache
-    from agent.data_quality import compute_dq_block as _compute_dq
-    dq_precheck = _compute_dq(ticker).replace("{", "[").replace("}", "]")
-    prompt = _BRIEF_PROMPT.format(ticker=ticker, date=today, dq_precheck=dq_precheck)
-
-    # ── Semantic cache lookup ─────────────────────────────────────────────────
-    # Cache key = ticker::date (NOT the full prompt).
-    # The prompt template is ~3 KB of nearly identical text across tickers;
-    # embedding similarity easily exceeds 0.95, causing cross-ticker false hits.
-    # A short, specific key like "THYAO.IS::June 29, 2026" is unambiguous.
-    sc = _get_cache()
-    _cache_key = f"{ticker}::{today}"
-    cached_brief: str | None = sc.get(_cache_key) if sc else None
-
     t0 = time.perf_counter()
+    cached_brief = False
 
-    if cached_brief:
-        # Cache hit — skip agent entirely
-        elapsed = time.perf_counter() - t0
-        st.success(f"⚡ Cache hit — served instantly for **{ticker}**")
-        answer = cached_brief
-        iterations = 0
-        total_tokens = 0
-    else:
-        # Cache miss — run the full pipeline
-        with st.status(f"Analyzing **{ticker}**…", expanded=True) as pipeline_status:
-            st.write("📰 Collecting news & running sentiment analysis…")
-            st.write("💹 Fetching live price data…")
-            st.write("📄 Querying 10-K risk factors via RAG…")
-            st.write("✍️ Generating investment brief…")
+    with st.status(f"Analyzing **{ticker}**…", expanded=True) as pipeline_status:
+        st.write("📰 Collecting news & running sentiment analysis…")
+        st.write("💹 Fetching live price data…")
+        st.write("📄 Querying 10-K risk factors via RAG…")
+        st.write("✍️ Generating investment brief…")
 
-            try:
-                result = run_agent(
-                    query=prompt,
-                    provider=provider,
-                    registry=registry,
-                    max_iterations=10,
+        try:
+            resp = requests.post(
+                f"{API_URL}/run",
+                json={"ticker": ticker},
+                timeout=300,
+            )
+            if resp.status_code == 404:
+                pipeline_status.update(label="❌ Ticker not found", state="error")
+                st.error(
+                    f"**Ticker not found:** `{ticker}`\n\n"
+                    "Check the symbol and exchange — e.g. for BIST use `THYAO` + Turkey (BIST)."
                 )
-                pipeline_status.update(
-                    label=f"✅ {ticker} brief ready!", state="complete"
-                )
-            except Exception as exc:
-                pipeline_status.update(
-                    label=f"❌ Pipeline error: {type(exc).__name__}", state="error"
-                )
-                st.exception(exc)
                 st.stop()
+            resp.raise_for_status()
+            data = resp.json()
+            pipeline_status.update(label=f"✅ {ticker} brief ready!", state="complete")
+        except requests.exceptions.Timeout:
+            pipeline_status.update(label="❌ Request timed out", state="error")
+            st.error("The analysis took too long (>5 min). Try again or use a major ticker like NVDA.")
+            st.stop()
+        except Exception as exc:
+            pipeline_status.update(label=f"❌ Error: {type(exc).__name__}", state="error")
+            st.exception(exc)
+            st.stop()
 
-        elapsed = time.perf_counter() - t0
-        answer = result.answer
-        iterations = result.iterations
-        total_tokens = result.total_tokens
+    elapsed = time.perf_counter() - t0
+    answer = data.get("brief", "")
+    iterations = data.get("iterations", 0)
+    total_tokens = data.get("total_tokens", 0)
+    cached_brief = iterations == 0 and total_tokens == 0
 
-        # Store in cache for next time
-        if sc and answer:
-            try:
-                sc.set(_cache_key, answer)
-            except Exception:
-                pass
-
-    # ── Cost tracking ─────────────────────────────────────────────────────────
     daily_spend: float | None = None
-    try:
-        from middleware.cost import get_daily_stats, track_cost
-        if not cached_brief:
-            track_cost("gpt-4o-mini", total_tokens=total_tokens)
-        daily_spend = get_daily_stats().get("total_usd")
-    except Exception:
-        pass
 
     # ── Metric badges ─────────────────────────────────────────────────────────
     c1, c2, c3 = st.columns(3)

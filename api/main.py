@@ -304,6 +304,22 @@ def stats(day: str = Query(default=None, description="Date in YYYY-MM-DD format 
     return get_daily_stats(day)
 
 
+# ── Cache delete endpoint ─────────────────────────────────────────────────────
+
+@app.delete("/cache/{ticker}")
+def cache_delete(ticker: str) -> dict:
+    """Delete today's cached brief for a ticker."""
+    from datetime import date as _date
+    sc = _get_cache()
+    if sc is None:
+        return {"deleted": False, "reason": "cache unavailable"}
+    key = f"{ticker.upper()}::{_date.today().strftime('%B %d, %Y')}"
+    deleted = sc.delete(key)
+    if deleted:
+        return {"deleted": True}
+    raise HTTPException(status_code=404, detail=f"No cache entry for {ticker} today")
+
+
 # ── Brief prompt (canonical version lives in agent/prompts.py) ────────────────
 
 from agent.prompts import BRIEF_PROMPT as _BRIEF_PROMPT  # noqa: E402
