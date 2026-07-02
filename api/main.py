@@ -78,16 +78,7 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-def _get_cache():
-    """Return a SemanticCache instance if Redis is reachable, else None."""
-    try:
-        from cache.semantic_cache import SemanticCache
-        sc = SemanticCache()
-        if sc.ping():
-            return sc
-    except Exception:
-        pass
-    return None
+from cache.cache_utils import get_cache as _get_cache
 
 
 @app.post("/run", response_model=AgentResponse)
@@ -108,6 +99,11 @@ def run(request: Request, req: RunRequest) -> AgentResponse:
     from agent.tools.search import web_search
     from agent.tools.sentiment import analyze_news_sentiment
     from agent.tools.rag import query_10k
+    from agent.tools.financial_metrics import get_financial_metrics
+    from agent.tools.valuation import get_valuation
+    from agent.tools.competitor import get_competitor_analysis
+    from agent.tools.earnings import get_earnings
+    from agent.tools.technical import get_technical_analysis
     from agent.registry import ToolRegistry
     from providers.factory import get_provider
     from middleware.cost import track_cost, check_budget, BudgetExceededError
@@ -122,7 +118,9 @@ def run(request: Request, req: RunRequest) -> AgentResponse:
 
     ticker = req.ticker.upper()
     today = date.today().strftime("%B %d, %Y")
-    prompt = _BRIEF_PROMPT.format(ticker=ticker, date=today)
+    from agent.data_quality import compute_dq_block
+    dq_precheck = compute_dq_block(ticker).replace("{", "[").replace("}", "]")
+    prompt = _BRIEF_PROMPT.format(ticker=ticker, date=today, dq_precheck=dq_precheck)
 
     # ── Semantic cache lookup (free — no LLM cost) ────────────────────────────
     sc = _get_cache()
@@ -143,6 +141,11 @@ def run(request: Request, req: RunRequest) -> AgentResponse:
     registry.register(web_search)
     registry.register(analyze_news_sentiment)
     registry.register(query_10k)
+    registry.register(get_financial_metrics)
+    registry.register(get_valuation)
+    registry.register(get_competitor_analysis)
+    registry.register(get_earnings)
+    registry.register(get_technical_analysis)
 
     _MODEL = "gpt-4o-mini"
     provider = get_provider("openai", _MODEL)
@@ -152,7 +155,7 @@ def run(request: Request, req: RunRequest) -> AgentResponse:
             query=prompt,
             provider=provider,
             registry=registry,
-            max_iterations=8,
+            max_iterations=10,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -301,72 +304,6 @@ def stats(day: str = Query(default=None, description="Date in YYYY-MM-DD format 
     return get_daily_stats(day)
 
 
-# ── Brief prompt (shared with brief.py CLI) ───────────────────────────────────
+# ── Brief prompt (canonical version lives in agent/prompts.py) ────────────────
 
-_BRIEF_PROMPT = """\
-Produce a 2-page structured investment brief for {ticker} dated {date}.
-
-STEP 1 — Call these tools to gather data (as many in parallel as possible):
-  • get_stock_data: ticker="{ticker}", period="1mo"
-  • analyze_news_sentiment: ticker="{ticker}", top_n=5
-  • web_search: query="{ticker} latest news analyst outlook 2025"
-  • query_10k: ticker="{ticker}", question="What are the top risk factors and key business uncertainties?"
-
-If query_10k returns an error (ticker not indexed), immediately call:
-  • web_search: query="{ticker} 10-K annual report key risk factors 2024"
-
-STEP 2 — Using ONLY the data returned by those tools, output this EXACT Markdown document.
-Output the Markdown directly — no preamble, no code fences, no extra commentary.
-
-# {ticker} — Investment Brief
-**Date:** {date}
-**Analyst Engine:** Finance Sentiment Engine v0.2.0
-
----
-
-## 1. Company Snapshot
-
-| Metric | Value |
-|--------|-------|
-| Current Price | $[price from get_stock_data] |
-| Market Cap | $[market_cap formatted as $XB] |
-| 1-Month Return | [pct_change]% |
-
-[One paragraph (2–3 sentences) describing what {ticker} does and its market position.]
-
----
-
-## 2. Recent News & Sentiment
-
-[For each news article from analyze_news_sentiment, write one bullet:]
-- [🟢 bullish / 🔴 bearish / ⚪ neutral] **[key_event]** — [one-line summary from the article]
-
-**Overall Sentiment:** [bullish/bearish/neutral] — [One sentence justification based on the sentiment distribution above.]
-
----
-
-## 3. Key Risk Factors
-
-[List exactly 5 risk factors from query_10k answer or web_search. Use bullet points with a bold risk name followed by a brief description.]
-
----
-
-## 4. Analyst Verdict
-
-| | |
-|---|---|
-| **Recommendation** | Buy / Hold / Watch |
-| **Key Opportunity** | [from news/sentiment data — one line] |
-| **Key Risk** | [top risk from section 3 — one line] |
-
-> [One-sentence analyst summary tying together the sentiment, risks, and price action.]
-
----
-
-## 5. Sources
-
-[Bullet list of all URLs returned by web_search, plus:]
-- Stock data: Yahoo Finance via yfinance (get_stock_data)
-- Sentiment: Yahoo Finance RSS + GPT-4 analysis (analyze_news_sentiment)
-[If query_10k was used: - 10-K: SEC EDGAR via Qdrant RAG (query_10k)]
-"""
+from agent.prompts import BRIEF_PROMPT as _BRIEF_PROMPT  # noqa: E402

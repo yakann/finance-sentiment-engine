@@ -58,6 +58,7 @@ STATE'İN YOLCULUĞU:
 from typing import Literal
 
 from langgraph.graph import END, START, StateGraph
+from providers.factory import get_provider as _get_provider
 
 from agent.tools.finance import _GetStockDataInput, _get_stock_data
 from agent.tools.rag import _Query10KInput, _query_10k
@@ -288,7 +289,53 @@ def revise_draft(state: FinanceState) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# ROUTING: draft sonrası  (Day 26 — YENİ)
+# LLM HELPER: reflect  (Day 28 — testlerde patch'lenebilir)
+# ---------------------------------------------------------------------------
+
+def _call_reflect_llm(draft: str, ticker: str) -> str:
+    provider = _get_provider("openai", "gpt-4o-mini")
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                f"You are a financial editor reviewing an investment brief for {ticker}.\n\n"
+                f"DRAFT:\n{draft}\n\n"
+                f"Check for these required elements:\n"
+                f"1. Ticker symbol ({ticker}) is mentioned\n"
+                f"2. Sentiment (bullish/bearish/neutral) is stated\n"
+                f"3. Current price data is included\n"
+                f"4. At least one key risk or analysis point\n\n"
+                f"If ALL elements are present, return the draft UNCHANGED.\n"
+                f"If any element is missing, add it concisely and return the complete improved draft.\n"
+                f"Return ONLY the draft text, no commentary."
+            ),
+        }
+    ]
+    response = provider.generate(messages)
+    return response.text.strip()
+
+
+# ---------------------------------------------------------------------------
+# NODE 6b: reflect  (Day 28 — YENİ, otomatik draft değerlendirme)
+# ---------------------------------------------------------------------------
+
+def reflect_draft(state: FinanceState) -> dict:
+    """
+    Draft'ı LLM ile değerlendirir; eksik eleman varsa otomatik tamamlar.
+
+    Reflection pattern: LLM kendi ürettiği çıktıyı başka bir LLM çağrısıyla
+    denetler. Human interrupt'tan ÖNCE çalışır; insan zaten iyileştirilmiş
+    bir draft görür.
+    """
+    draft = state.get("draft", "")
+    ticker = state.get("ticker", "UNKNOWN")
+    improved = _call_reflect_llm(draft, ticker)
+    reflect_note = "auto-reflected" if improved != draft else "no changes"
+    return {"draft": improved, "reflect_note": reflect_note}
+
+
+# ---------------------------------------------------------------------------
+# ROUTING: reflect sonrası  (Day 26 logic, Day 28'de reflect'e taşındı)
 # ---------------------------------------------------------------------------
 
 def route_after_draft(state: FinanceState) -> Literal["revise", "__end__"]:
@@ -343,6 +390,9 @@ def build_finance_graph(checkpointer=None, interrupt_after: list[str] | None = N
     builder.add_node("draft", write_draft)
     builder.add_node("revise", revise_draft)
 
+    # Day 28: Reflection node
+    builder.add_node("reflect", reflect_draft)
+
     # Lineer başlangıç
     builder.add_edge(START, "collect_news")
     builder.add_edge("collect_news", "analyze_sentiment")
@@ -361,9 +411,12 @@ def build_finance_graph(checkpointer=None, interrupt_after: list[str] | None = N
     # Day 26: fetch_price → draft (interrupt noktası)
     builder.add_edge("fetch_price", "draft")
 
-    # Day 26: draft → revise (feedback var) veya END (approved)
+    # Day 28: draft → reflect (LLM otomatik değerlendirme)
+    builder.add_edge("draft", "reflect")
+
+    # Day 28: reflect → revise (feedback var) veya END (approved)
     builder.add_conditional_edges(
-        "draft",
+        "reflect",
         route_after_draft,
         {"revise": "revise", "__end__": END},
     )
@@ -402,7 +455,7 @@ if __name__ == "__main__":
     ticker = sys.argv[1] if len(sys.argv) > 1 else "NVDA"
 
     with make_checkpointer("hitl_demo.db") as cp:
-        graph = build_finance_graph(checkpointer=cp, interrupt_after=["draft"])
+        graph = build_finance_graph(checkpointer=cp, interrupt_after=["reflect"])
         config = {"configurable": {"thread_id": f"hitl-{ticker}-demo"}}
 
         print(f"=== HITL Run: {ticker} ===")

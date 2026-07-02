@@ -28,13 +28,38 @@ _TICKER_NAMES: dict[str, list[str]] = {
     "AMZN": ["amazon", "amzn"],
     "META": ["meta", "facebook"],
     "NFLX": ["netflix", "nflx"],
+    # Turkish (BIST)
+    "THYAO.IS": ["turkish airlines", "thy", "thyao"],
+    "EREGL.IS": ["eregli", "erdemir", "eregl"],
+    "GARAN.IS": ["garanti", "garan"],
+    "AKBNK.IS": ["akbank", "akbnk"],
+    "ISCTR.IS": ["is bankasi", "isbank", "isctr"],
+    "KCHOL.IS": ["koc holding", "kchol"],
+    "SAHOL.IS": ["sabanci", "sahol"],
+    "SISE.IS": ["sise cam", "sisecam", "sise"],
+    "VESTL.IS": ["vestel", "vestl"],
+    "TOASO.IS": ["tofas", "toaso"],
+    "BIMAS.IS": ["bim", "bimas"],
+    "PGSUS.IS": ["pegasus", "pgsus"],
 }
 
 
 def _mentions_ticker(text: str, ticker: str) -> bool:
-    """Return True if text contains the ticker symbol or a known company-name variant."""
+    """Return True if text contains the ticker symbol or a known company-name variant.
+
+    For exchange-suffixed tickers (e.g. THYAO.IS), always also search for the
+    base symbol (THYAO) so that news headlines that omit the suffix still match.
+    """
     text_lower = text.lower()
-    names = _TICKER_NAMES.get(ticker.upper(), [ticker.lower()])
+    ticker_upper = ticker.upper()
+
+    if ticker_upper in _TICKER_NAMES:
+        names = _TICKER_NAMES[ticker_upper]
+    else:
+        # Base ticker before exchange suffix (e.g. "BMW" from "BMW.DE")
+        base = ticker_upper.split(".")[0].lower()
+        names = [base, ticker_upper.lower()]
+
     return any(name in text_lower for name in names)
 
 

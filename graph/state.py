@@ -14,4 +14,5 @@ class FinanceState(TypedDict, total=False):
     risks: list[str]
     draft: str
     feedback: str  # Day 26: human review feedback; "" = approved
+    reflect_note: str  # Day 28: reflection sonucu; "no changes" veya "auto-reflected"
     messages: Annotated[list[BaseMessage], add_messages]

@@ -24,3 +24,5 @@ graph/*.png
 # Generated outputs (rebuilt on demand)
 briefs/
 experiments/
+qdrant_storage/
+CV_ozet.md

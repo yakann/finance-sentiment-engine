@@ -128,6 +128,22 @@ class SemanticCache:
         self._r.hset(key, mapping=mapping)
         self._r.expire(key, TTL_SECONDS)
 
+    def delete(self, query: str) -> bool:
+        """Delete the single cache entry whose stored query matches exactly.
+
+        Scans all scache:* keys and removes the first one whose 'query' field
+        equals the given string. Returns True if a key was deleted.
+        """
+        for key in self._r.scan_iter(f"{KEY_PREFIX}*"):
+            stored = self._r.hget(key, "query")
+            if stored is None:
+                continue
+            stored_str = stored.decode() if isinstance(stored, bytes) else stored
+            if stored_str == query:
+                self._r.delete(key)
+                return True
+        return False
+
     def ping(self) -> bool:
         """Return True if Redis is reachable."""
         try:

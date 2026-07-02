@@ -52,6 +52,8 @@ def _mock_patches(news=None):
         patch("graph.finance_graph._analyze_news_sentiment", return_value=news),
         patch("graph.finance_graph._get_stock_data", return_value=_MOCK_PRICE),
         patch("graph.finance_graph._query_10k", return_value=_MOCK_10K),
+        # Day 28: reflect LLM çağrısını bypass et (draft'ı değiştirmeden geçir)
+        patch("graph.finance_graph._call_reflect_llm", side_effect=lambda draft, ticker: draft),
     ]
 
 
